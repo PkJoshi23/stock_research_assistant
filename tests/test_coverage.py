@@ -70,6 +70,24 @@ def test_thematic_question_passes_through(registry):
     assert not gate.blocked
 
 
+def test_gate_works_without_a_cache_or_sec_contact(tmp_path, monkeypatch):
+    """The deployed app has neither a .cache nor SEC_CONTACT_EMAIL.
+
+    Relying on the downloaded registry made the gate a silent no-op on Cloud,
+    so the app kept running the full pipeline. The bundled registry must be
+    enough.
+    """
+    from src import config
+
+    monkeypatch.setattr(config, "SEC_CACHE_DIR", tmp_path)  # empty: no cache
+    monkeypatch.setattr(config, "SEC_CONTACT_EMAIL", "")
+
+    gate = coverage.assess("who supplies to aaoi?", COMPANIES)
+
+    assert gate.blocked
+    assert gate.untracked[0][0] == "AAOI"
+
+
 def test_price_question_detection():
     assert coverage.looks_like_price_question("what is AAOI trading at?")
     assert coverage.looks_like_price_question("AAOI price?")

@@ -104,6 +104,11 @@ class _Response:
 def cached_dir(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "SEC_CACHE_DIR", tmp_path)
     monkeypatch.setattr(config, "SEC_CONTACT_EMAIL", "test@example.com")
+    # By default these tests exercise the cache/network path, so point the
+    # bundled fallback at a path that does not exist.
+    monkeypatch.setattr(
+        ticker_directory, "bundled_path", lambda: tmp_path / "no-bundled-registry.json"
+    )
     return tmp_path
 
 
@@ -134,6 +139,29 @@ def test_directory_is_cached_after_first_fetch(cached_dir, monkeypatch):
     assert (cached_dir / "company_tickers.json").exists()
 
 
+def test_bundled_registry_is_used_when_the_cache_is_absent(cached_dir, monkeypatch):
+    """Cloud has no .cache and no SEC contact address.
+
+    Without the bundled copy the coverage gate would silently become a no-op on
+    the deployed app, which is exactly the failure this test pins.
+    """
+    bundled = cached_dir / "bundled.json"
+    bundled.write_text(
+        json.dumps([{"ticker": "AAOI", "title": "APPLIED OPTOELECTRONICS, INC.",
+                     "cik": "0001158114"}]),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(ticker_directory, "bundled_path", lambda: bundled)
+    monkeypatch.setattr(config, "SEC_CONTACT_EMAIL", "")
+
+    def _no_network(*args, **kwargs):
+        raise AssertionError("must not reach the network when a bundle exists")
+
+    monkeypatch.setattr("requests.get", _no_network)
+
+    assert ticker_directory.load_directory()[0]["ticker"] == "AAOI"
+
+
 def test_stale_cache_without_cik_is_refetched(cached_dir, monkeypatch):
     """The fast SEC path needs CIK; an older cache must not silently lack it."""
     path = cached_dir / "company_tickers.json"
@@ -152,6 +180,9 @@ def test_stale_cache_without_cik_is_refetched(cached_dir, monkeypatch):
 def test_missing_contact_email_is_a_clear_error(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "SEC_CACHE_DIR", tmp_path)
     monkeypatch.setattr(config, "SEC_CONTACT_EMAIL", "")
+    monkeypatch.setattr(
+        ticker_directory, "bundled_path", lambda: tmp_path / "no-bundled-registry.json"
+    )
 
     with pytest.raises(RuntimeError, match="SEC_CONTACT_EMAIL"):
         ticker_directory.load_directory()

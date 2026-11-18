@@ -61,23 +61,55 @@ def cache_path() -> Path:
     return config.SEC_CACHE_DIR / "company_tickers.json"
 
 
+def bundled_path() -> Path:
+    """The registry shipped with the repo.
+
+    Cloud has no ``.cache`` and no SEC contact address, so without this the
+    coverage gate silently degrades to a no-op on the deployed app - which is
+    exactly how "who supplies to aaoi?" kept running the full pipeline after the
+    gate was supposedly live. The bundled copy is read-only and refreshed by
+    committing a new one.
+    """
+    return config.PROJECT_ROOT / "data" / "company_tickers.json"
+
+
+def _read(path: Path) -> list[dict] | None:
+    try:
+        rows = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if rows and all(entry.get("cik") for entry in rows):
+        return rows
+    return None  # older cache without CIK: refetch rather than return it
+
+
 def load_directory(*, refresh: bool = False) -> list[dict]:
-    """Return ``[{ticker, title, cik}]``, fetching SEC's map once and caching it."""
-    path = cache_path()
-    if path.exists() and not refresh:
+    """Return ``[{ticker, title, cik}]`` from cache, bundle, or SEC.
+
+    Order matters: a fresh cache wins (it is the most current), the bundled copy
+    is the offline fallback that makes the deployed app work without a SEC
+    contact address, and only then is the network used.
+    """
+    if refresh:
+        path = cache_path()
         try:
-            cached = json.loads(path.read_text(encoding="utf-8"))
-            # CIK was added later; an older cache is refetched rather than
-            # silently returning entries the fast SEC path cannot use.
-            if cached and all(entry.get("cik") for entry in cached):
-                return cached
-        except (OSError, json.JSONDecodeError):
-            pass  # fall through to a refetch
+            path.unlink()
+        except OSError:
+            pass
+
+    cached = _read(cache_path())
+    if cached:
+        return cached
+
+    bundled = _read(bundled_path())
+    if bundled:
+        return bundled
 
     if not config.SEC_CONTACT_EMAIL:
         raise RuntimeError(
-            "SEC_CONTACT_EMAIL is not set; EDGAR requires a contact address. "
-            "Set it in .env (see .env.example)."
+            "SEC_CONTACT_EMAIL is not set and no bundled company_tickers.json "
+            "was found; EDGAR requires a contact address. Set it in .env "
+            "(see .env.example)."
         )
 
     import requests
@@ -101,6 +133,7 @@ def load_directory(*, refresh: bool = False) -> list[dict]:
         }
         for item in payload.values()
     ]
+    path = cache_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(entries), encoding="utf-8")
     return entries
