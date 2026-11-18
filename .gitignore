@@ -1,0 +1,63 @@
+# --- Secrets ----------------------------------------------------------------
+.env
+.streamlit/secrets.toml
+
+# --- Virtual environment ----------------------------------------------------
+.venv/
+venv/
+env/
+
+# --- Python -----------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+build/
+dist/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# --- Relate graph store -----------------------------------------------------
+# The database is generated from ingestion scripts, never committed...
+# ...except the demo snapshot: a deploy needs data on first boot, so this one
+# file is committed deliberately (1.8 MB).
+data/*.rl
+!data/stock_graph.rl
+data/*.rl-wal
+data/stock_graph/
+data/**/*.parquet
+
+# --- Tool scratch directories ------------------------------------------------
+.benchmarks/
+relate-probe-*/
+torchinductor_*/
+
+# --- Local caches (sentence-transformers / huggingface) ---------------------
+.cache/
+
+# --- SEC filings cache (downloaded 10-K / DEF 14A documents) -----------------
+sec_filings_cache/
+
+# --- pytest scratch directories ---------------------------------------------
+# pytest derives its base temp dir from TMPDIR; when that is unset it can land
+# inside the repo, and each run leaves per-test stores behind.
+pytest-of-*/
+.pytest-tmp/
+.pytest_cache/
+
+# --- Torch inductor compile cache ------------------------------------------
+# Torch writes a named scratch dir into the CWD on first model run.
+torchinductor_*/
+*.tmp
+
+# --- Editors ----------------------------------------------------------------
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# Test scratch stores (pytest basetemp)
+.pytest-tmp*/
+

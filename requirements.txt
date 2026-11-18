@@ -1,0 +1,68 @@
+# =============================================================================
+# AI Stock Research Assistant - Relate by Neo4j Hackathon
+# =============================================================================
+# Install:  pip install --no-cache-dir -r requirements.txt
+#
+# The `--no-cache-dir` flag is not optional on this machine: pip's HTTP cache
+# makes every resolve hang at 100% CPU (see README -> "Environment quirks").
+#
+# NOTE ON VERSIONING
+# Only the Relate package is pinned, because it is the one dependency whose
+# exact wheel we verified against PyPI (1.0.2, abi3 wheel, Python >= 3.9).
+# The remaining packages use lower bounds so a clean install is not blocked by
+# an unrelated upstream release. Once the environment installs successfully,
+# lock the whole tree with:
+#
+#     pip freeze > requirements.lock.txt
+#
+# and ship that file alongside this one for reproducible builds.
+# =============================================================================
+
+# --- Core graph database -----------------------------------------------------
+# Embedded Neo4j-compatible engine (Rust, native extension). No server, no
+# network, no daemon: it runs inside the Python process.
+# IMPORTANT: the PyPI name is `relate-db`; the import name is `relate`.
+# (`relate` on PyPI is an unrelated 2015 package - do not use it.)
+relate-db==1.0.2
+
+# --- LLM: DeepSeek via the OpenAI-compatible SDK -----------------------------
+openai>=1.30.0
+
+# --- Configuration / secrets -------------------------------------------------
+python-dotenv>=1.0.0
+
+# --- Market data -------------------------------------------------------------
+# Used ONLY to fetch the *current* snapshot price/market cap/P-E at query time.
+# Nothing from yfinance is ever persisted as a time series. See README.
+yfinance>=0.2.40
+
+# --- News ingestion ----------------------------------------------------------
+# Google News RSS (parsed with feedparser) + yfinance's search feed.
+# No API key is required for either source - NewsAPI was dropped.
+feedparser>=6.0.10
+requests>=2.31.0
+
+# --- SEC EDGAR ---------------------------------------------------------------
+# Filing download + HTML-to-text. No API key, but EDGAR requires a real contact
+# email in the User-Agent (see SEC_CONTACT_EMAIL in .env.example).
+sec-edgar-downloader>=5.0.0
+beautifulsoup4>=4.12.0
+lxml>=5.0.0  # optional: faster parsing of large 10-K documents
+
+# --- Embeddings --------------------------------------------------------------
+# Local sentence-embedding model for the news vector index. Pulls in torch,
+# so this is the heaviest dependency in the stack (~2 GB on Windows).
+sentence-transformers>=3.0.0
+
+# --- UI ----------------------------------------------------------------------
+streamlit>=1.36.0
+pandas>=2.0.0
+
+# --- Graph visualisation -----------------------------------------------------
+# pyvis renders the subgraph as a self-contained vis.js HTML document.
+pyvis>=0.3.2
+
+# --- Development / tests -----------------------------------------------------
+# Not needed to run the app. Install with the same --no-cache-dir flag.
+pytest>=8.0.0
+
