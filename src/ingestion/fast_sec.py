@@ -529,6 +529,19 @@ def ingest(
     started = time.perf_counter()
     report = FastReport(ticker=ticker.strip().upper())
 
+    # EDGAR's Archives endpoint answers 403 to any User-Agent without a contact
+    # address (verified: the same URL returns 200 with an address and 403
+    # without). Checking first turns a confusing network error into an instruction.
+    if not config.SEC_CONTACT_EMAIL:
+        report.error = (
+            "SEC requires a contact address before it will serve filings. "
+            "Set SEC_CONTACT_EMAIL in the app secrets (e.g. you@example.com) "
+            "and restart the app."
+        )
+        report.notes.append(report.error)
+        report.elapsed_ms = int((time.perf_counter() - started) * 1000)
+        return report
+
     resolved = resolve_cik(report.ticker)
     if not resolved:
         report.notes.append("ticker not found in SEC's registrant map")

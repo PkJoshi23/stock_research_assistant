@@ -127,6 +127,14 @@ with st.sidebar:
     except Exception as exc:  # noqa: BLE001 - diagnostics must not break the app
         st.caption(f"registry unavailable: {type(exc).__name__}: {str(exc)[:80]}")
 
+    if not config.SEC_CONTACT_EMAIL:
+        # SEC Archives 403s without a contact address, so the fetch button can
+        # never work. Say so before the user clicks it.
+        st.caption(
+            "⚠️ SEC_CONTACT_EMAIL not set - the SEC fetch is disabled. Add it in "
+            "Settings → Secrets."
+        )
+
 # -----------------------------------------------------------------------------
 # Chat state
 # -----------------------------------------------------------------------------

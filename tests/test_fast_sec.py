@@ -45,6 +45,16 @@ EXHIBIT_HTML = """
 
 # -- text handling -----------------------------------------------------------
 
+@pytest.fixture(autouse=True)
+def _sec_contact(monkeypatch):
+    """EDGAR needs a contact; the fast path now refuses to start without one.
+
+    Every test here except the preflight test wants a configured address.
+    """
+    from src import config
+
+    monkeypatch.setattr(config, "SEC_CONTACT_EMAIL", "test@example.com")
+
 
 def test_de_tag_strips_markup_scripts_and_entities():
     text = fast_sec.de_tag("<p>Alpha &amp; Beta</p><script>bad()</script><b>Gamma</b>")
@@ -312,6 +322,24 @@ def test_ingest_uses_the_cached_document_on_a_second_run(seeded, monkeypatch):
 
     assert report.cached is True
     assert report.suppliers  # still extracted from the cached text
+
+
+def test_ingest_refuses_up_front_without_a_contact_address(seeded, monkeypatch):
+    """EDGAR 403s without a contact; do not spend a request finding that out."""
+    from src import config
+
+    monkeypatch.setattr(config, "SEC_CONTACT_EMAIL", "")
+    monkeypatch.setattr(
+        fast_sec,
+        "resolve_cik",
+        lambda ticker: (_ for _ in ()).throw(AssertionError("must not touch SEC")),
+    )
+
+    report = fast_sec.ingest(seeded, "AAOI", write=False)
+
+    assert report.error is not None
+    assert "SEC_CONTACT_EMAIL" in report.error
+    assert report.suppliers == []
 
 
 def test_ingest_reports_a_403_instead_of_raising(seeded, monkeypatch):
