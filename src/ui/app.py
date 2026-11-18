@@ -57,15 +57,22 @@ with st.sidebar:
     st.title("📈 Relate Stock Agent")
     st.caption("Connected financial context, stored in an embedded graph.")
 
+    # Never prefill this widget with the server key. Streamlit serialises widget
+    # values into the page, so a prefilled password field hands the credential to
+    # every visitor - masked on screen, readable in devtools. The field is an
+    # opt-in override; empty means "use the key this deployment was configured
+    # with".
+    if config.DEEPSEEK_API_KEY:
+        st.caption("🟢 Server key configured - leave the field below empty to use it.")
     api_key = st.text_input(
-        "DeepSeek API key",
+        "Use your own DeepSeek API key",
         type="password",
-        value=config.DEEPSEEK_API_KEY or "",
-        help="Leave empty to use DEEPSEEK_API_KEY from .env",
+        value="",
+        help="Optional. Leave empty to use the key configured for this deployment.",
     )
     # Apply on every rerun: this is what makes a key typed here actually reach
     # steps 1-3 instead of only the final summary.
-    llm.set_api_key(api_key)
+    llm.set_api_key(api_key.strip() or None)
 
     st.divider()
     counts, indexes = graph_stats(agent)
