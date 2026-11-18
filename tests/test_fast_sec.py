@@ -314,6 +314,52 @@ def test_ingest_uses_the_cached_document_on_a_second_run(seeded, monkeypatch):
     assert report.suppliers  # still extracted from the cached text
 
 
+def test_ingest_reports_a_403_instead_of_raising(seeded, monkeypatch):
+    """The deployed app crashed on this: a 403 from EDGAR must be a result."""
+    import requests
+
+    monkeypatch.setattr(
+        fast_sec, "resolve_cik", lambda ticker: ("0001158114", "APPLIED OPTOELECTRONICS INC")
+    )
+    monkeypatch.setattr(
+        fast_sec, "latest_filing", lambda cik, forms=("10-K", "20-F"): _fake_filing()
+    )
+    monkeypatch.setattr(fast_sec, "_load_cached_text", lambda filing: "")
+
+    def forbidden(url, max_bytes=0):
+        raise requests.HTTPError(
+            "403 Client Error", response=type("R", (), {"status_code": 403})()
+        )
+
+    monkeypatch.setattr(fast_sec, "get_text", forbidden)
+
+    report = fast_sec.ingest(seeded, "AAOI", write=False)
+
+    assert report.error is not None
+    assert "SEC_CONTACT_EMAIL" in report.error
+    assert report.form == "10-K"  # the filing was found; only the download failed
+    assert report.suppliers == []
+    assert report.wrote is False
+
+
+def test_headers_carry_the_configured_contact(monkeypatch):
+    from src import config
+
+    monkeypatch.setattr(config, "SEC_CONTACT_EMAIL", "someone@example.com")
+    headers = fast_sec._headers()
+
+    assert "someone@example.com" in headers["User-Agent"]
+
+
+def test_headers_flag_a_missing_contact(monkeypatch):
+    from src import config
+
+    monkeypatch.setattr(config, "SEC_CONTACT_EMAIL", "")
+    headers = fast_sec._headers()
+
+    assert "contact-not-configured" in headers["User-Agent"]
+
+
 def test_ingest_unknown_ticker_is_reported_not_invented(seeded, monkeypatch):
     monkeypatch.setattr(fast_sec, "resolve_cik", lambda ticker: None)
 

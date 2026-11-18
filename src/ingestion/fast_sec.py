@@ -80,6 +80,9 @@ class FastReport:
     #: on a limited number of suppliers" - so the answer can say *why* it is
     #: empty instead of implying the company has no dependencies.
     evidence: str | None = None
+    #: Human-readable reason the fetch failed (HTTP status, missing contact...).
+    #: A network failure is a result, not an exception: the UI must render it.
+    error: str | None = None
     cached: bool = False
     tokens: int = 0
     elapsed_ms: int = 0
@@ -102,6 +105,7 @@ class FastReport:
             "unresolved": self.unresolved,
             "subsidiaries": self.subsidiaries,
             "evidence": self.evidence,
+            "error": self.error,
             "cached": self.cached,
             "tokens": self.tokens,
             "elapsed_ms": self.elapsed_ms,
@@ -116,10 +120,33 @@ class FastReport:
 
 
 def _headers() -> dict[str, str]:
+    """EDGAR requires a descriptive User-Agent with a contact address.
+
+    Without one the submissions and Archives endpoints answer 403 - which is
+    exactly what the deployed app hit when SEC_CONTACT_EMAIL was unset. The
+    marker below makes that state visible in the request rather than pretending
+    to be a contact that does not exist.
+    """
+    contact = config.SEC_CONTACT_EMAIL or "contact-not-configured"
     return {
-        "User-Agent": f"{config.SEC_COMPANY_NAME} {config.SEC_CONTACT_EMAIL}".strip(),
+        "User-Agent": f"{config.SEC_COMPANY_NAME}/1.0 ({contact})",
         "Accept-Encoding": "gzip, deflate",
     }
+
+
+def _http_error_message(exc: Exception) -> str:
+    """Turn a request failure into something a user can act on."""
+    status = getattr(getattr(exc, "response", None), "status_code", None)
+    if status == 403:
+        return (
+            "SEC rejected the request (HTTP 403). EDGAR requires a contact "
+            "address: set SEC_CONTACT_EMAIL in the app secrets (e.g. "
+            "you@example.com) and reboot."
+        )
+    if status == 404:
+        return "SEC has no document at that address (HTTP 404)."
+    detail = str(exc).splitlines()[0][:160]
+    return f"SEC request failed ({status or type(exc).__name__}): {detail}"
 
 
 def get_json(url: str, *, timeout: float | None = None) -> dict:
@@ -509,7 +536,13 @@ def ingest(
         return report
     report.cik, report.company_name = resolved
 
-    filing = latest_filing(report.cik)
+    try:
+        filing = latest_filing(report.cik)
+    except requests.RequestException as exc:
+        report.error = _http_error_message(exc)
+        report.notes.append(report.error)
+        report.elapsed_ms = int((time.perf_counter() - started) * 1000)
+        return report
     if not filing:
         report.notes.append("no 10-K or 20-F in the recent filings list")
         report.elapsed_ms = int((time.perf_counter() - started) * 1000)
@@ -520,7 +553,15 @@ def ingest(
     if text:
         report.cached = True
     else:
-        raw, size, truncated = get_text(filing.document_url)
+        try:
+            raw, size, truncated = get_text(filing.document_url)
+        except requests.RequestException as exc:
+            # A 403 here is the expected outcome when SEC_CONTACT_EMAIL is unset.
+            # Report it; never let a network failure reach the UI as a traceback.
+            report.error = _http_error_message(exc)
+            report.notes.append(report.error)
+            report.elapsed_ms = int((time.perf_counter() - started) * 1000)
+            return report
         report.document_bytes, report.document_truncated = size, truncated
         if truncated:
             report.notes.append(f"document truncated at {size} bytes")
@@ -574,7 +615,11 @@ def ingest(
         return report
 
     # --- write ---------------------------------------------------------------
-    snapshot = stocks.fetch_snapshot(report.ticker)
+    try:
+        snapshot = stocks.fetch_snapshot(report.ticker)
+    except Exception as exc:  # noqa: BLE001 - yfinance can fail in many ways
+        report.notes.append(f"snapshot unavailable ({type(exc).__name__}); wrote ticker only")
+        snapshot = None
     if snapshot:
         stocks.upsert_stock(conn, snapshot)
     else:

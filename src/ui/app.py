@@ -265,10 +265,21 @@ if coverage_info.get("can_fetch") and untracked:
     ):
         from src.ingestion import fast_sec
 
-        with st.spinner(f"Reading {fetch_ticker}'s latest annual report..."):
-            report = fast_sec.ingest(agent.db, fetch_ticker, write=True)
+        try:
+            with st.spinner(f"Reading {fetch_ticker}'s latest annual report..."):
+                report = fast_sec.ingest(agent.db, fetch_ticker, write=True)
+        except Exception as exc:  # noqa: BLE001 - never crash the app on a fetch
+            st.error(
+                f"Couldn't fetch {fetch_ticker} from SEC "
+                f"({type(exc).__name__}: {str(exc)[:160]})."
+            )
+            report = None
 
-        if report.form:
+        if report is None:
+            pass  # already reported above
+        elif report.error:
+            st.warning(report.error)
+        elif report.form:
             parts = [f"{report.form} filed {report.filed}"]
             if report.suppliers:
                 parts.append(f"{len(report.suppliers)} suppliers")
