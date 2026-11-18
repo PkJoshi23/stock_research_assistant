@@ -342,6 +342,30 @@ Known limits: non-US registrants (Samsung, Hon Hai, SK Hynix as a local listing)
 resolve only if they have an ADR in EDGAR; depth ≥ 2 costs one 10-K/20-F download
 and one model call per company.
 
+### Unknown companies (coverage gate + fast SEC fetch)
+
+Asking about a company the graph does not hold used to cost three model calls
+(intent, schema, Cypher) before answering "no data" - without saying who AAOI is
+or what *is* covered. A deterministic gate (``src/coverage.py``) decides first:
+
+* **tracked** companies come from ``entities.resolve`` (names, tickers, aliases);
+* **untracked** ones come from SEC's cached registrant map - upper-case tickers
+  always, lower-case ones only at four characters or more, minus an English
+  stoplist (``on``, ``ai`` and ``open`` are tickers too);
+* a tracked mention anywhere disables the gate, and a thematic question naming
+  no company passes through untouched.
+
+A **price** question about an unknown ticker still gets a live quote (yfinance
+needs no graph). A **relationship** question lists the tracked universe and
+offers a *Fetch from SEC* button that runs the fast path
+(``src/ingestion/fast_sec.py``: primary document only, 1-3 MB, Item 1 slicing,
+zero tokens when the filing names suppliers) and re-answers.
+
+Measured: NVDA 4.4 s cold / 2.0 s warm at **0 tokens** (5 suppliers); AAOI
+11.2 s cold / 6.1 s warm at 404 tokens, where the honest answer is that its 10-K
+names no suppliers - the report quotes the "limited number of suppliers / sole
+source" disclosure instead.
+
 ### SEC filings (corporate structure)
 
 `ingest_sec_relationships.py` reads two primary documents per company and adds

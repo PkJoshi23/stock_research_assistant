@@ -26,7 +26,18 @@ from pathlib import Path
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from src import config, entities, llm, memory, provenance, quotes, relate_db, safety, visualization
+from src import (
+    config,
+    coverage,
+    entities,
+    llm,
+    memory,
+    provenance,
+    quotes,
+    relate_db,
+    safety,
+    visualization,
+)
 from src.agent import offline
 from src.agent.agent_router import (
     INTENT_GENERAL,
@@ -134,6 +145,18 @@ class StockResearchAgent:
 
     def _ask(self, user_question: str) -> dict:
         """The pipeline itself, without telemetry or memory."""
+        # Deterministic coverage gate, before any model call. A question about a
+        # company we do not hold would otherwise burn three calls (intent, schema,
+        # Cypher) to discover that, and then answer "no data" without saying why.
+        try:
+            gate = coverage.assess(user_question, self._companies())
+        except Exception:  # noqa: BLE001 - the gate is an optimisation, never a blocker
+            gate = None
+        if gate is not None and gate.blocked:
+            if coverage.looks_like_price_question(user_question):
+                return self._answer_untracked_price(gate)
+            return self._coverage_result(gate)
+
         try:
             routing = detect_intent_and_extract_schema(user_question)
         except Exception as exc:  # noqa: BLE001 - routing must not crash the app
@@ -217,6 +240,53 @@ class StockResearchAgent:
             )
             + provenance.collect(self.db, ticker, []),
         }
+
+    def _coverage_result(self, gate: coverage.Coverage) -> dict:
+        """Answer for an untracked company without spending a single token."""
+        tracked = [company["ticker"] for company in self._companies()]
+        return self._result(
+            intent="coverage_miss",
+            answer=coverage.refusal_text(gate, tracked),
+            tickers=gate.tickers(),
+            coverage={
+                "tracked": gate.tracked,
+                "untracked": [
+                    {"ticker": ticker, "name": name} for ticker, name in gate.untracked
+                ],
+                "can_fetch": True,
+            },
+        )
+
+    def _answer_untracked_price(self, gate: coverage.Coverage) -> dict:
+        """A price question about an unknown ticker still has a real answer.
+
+        yfinance does not need the graph, so a quote costs one request and no
+        tokens. Relationships and news are honestly out of scope until the
+        company is fetched from SEC.
+        """
+        ticker = gate.untracked[0][0]
+        quote = quotes.fetch(ticker)
+        if quote is None:
+            return self._coverage_result(gate)
+
+        answer = (
+            f"**{ticker}** is trading at **${quote.price:,.2f} {quote.currency}** "
+            "right now.\n\nI don't track its relationships yet - I can read its "
+            "latest SEC filing and add it in about 6 seconds."
+        )
+        return self._result(
+            intent=INTENT_LIVE_PRICE,
+            answer=answer,
+            tickers=[ticker],
+            coverage={
+                "tracked": [],
+                "untracked": [{"ticker": ticker, "name": gate.untracked[0][1]}],
+                "can_fetch": True,
+            },
+            sources=provenance.live_quote_source(
+                ticker, quote.price, quote.currency, quote.at
+            ),
+        )
 
     def _answer_general(self, question: str) -> dict:
         """Off-graph questions: answer briefly, and label the source honestly."""

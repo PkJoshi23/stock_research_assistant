@@ -142,6 +142,11 @@ if prompt := st.chat_input("Ask about a company, its competitors, suppliers or n
         with st.spinner("Reasoning over the graph..."):
             result = agent.ask(prompt)
 
+        # Persist the turn: the SEC-fetch action below is rendered outside this
+        # block, and clicking it reruns the script with no chat input.
+        st.session_state["last_result"] = result
+        st.session_state["last_prompt"] = prompt
+
         if result["intent"] == "historical_trend":
             st.info(result["answer"])
         elif result["error"]:
@@ -216,3 +221,63 @@ if prompt := st.chat_input("Ask about a company, its competitors, suppliers or n
                 )
 
     st.session_state.messages.append({"role": "assistant", "content": result["answer"]})
+
+
+# -----------------------------------------------------------------------------
+# Unknown-company action
+# -----------------------------------------------------------------------------
+# Rendered outside the chat-turn block on purpose: a button click reruns the
+# script with an empty chat input, so a button nested in that block disappears
+# before its own handler can run. The turn is persisted in session state instead.
+last_result = st.session_state.get("last_result") or {}
+last_prompt = st.session_state.get("last_prompt") or ""
+coverage_info = last_result.get("coverage") or {}
+untracked = coverage_info.get("untracked") or []
+
+if coverage_info.get("can_fetch") and untracked:
+    fetch_ticker = untracked[0]["ticker"]
+    st.divider()
+    st.caption(
+        f"{fetch_ticker} is not in the graph yet. Reading its latest annual "
+        "report costs one download and about 6 seconds."
+    )
+    if st.button(
+        f"Fetch {fetch_ticker} from SEC and add it",
+        key=f"fetch-sec-{fetch_ticker}",
+    ):
+        from src.ingestion import fast_sec
+
+        with st.spinner(f"Reading {fetch_ticker}'s latest annual report..."):
+            report = fast_sec.ingest(agent.db, fetch_ticker, write=True)
+
+        if report.form:
+            parts = [f"{report.form} filed {report.filed}"]
+            if report.suppliers:
+                parts.append(f"{len(report.suppliers)} suppliers")
+            if report.subsidiaries:
+                parts.append(f"{len(report.subsidiaries)} subsidiaries")
+            parts.append(f"{report.elapsed_ms / 1000:.1f}s")
+            st.success(f"Added {fetch_ticker}: " + " · ".join(parts))
+
+            if report.suppliers:
+                st.write("Suppliers: " + ", ".join(report.suppliers))
+            elif report.evidence:
+                st.caption(
+                    "The filing names no suppliers, but discloses: "
+                    f"\u201c{report.evidence}\u201d"
+                )
+
+            if last_prompt:
+                with st.spinner("Answering again with the new data..."):
+                    followup = agent.ask(last_prompt)
+                st.session_state["last_result"] = followup
+                st.session_state.messages.append(
+                    {"role": "assistant", "content": followup["answer"]}
+                )
+                if followup.get("error"):
+                    st.error(followup["answer"])
+                else:
+                    st.markdown(followup["answer"])
+        else:
+            reason = report.notes[0] if report.notes else "unknown reason"
+            st.warning(f"I couldn't read a filing for {fetch_ticker}: {reason}")
