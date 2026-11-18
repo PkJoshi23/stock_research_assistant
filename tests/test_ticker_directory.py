@@ -113,7 +113,13 @@ def test_directory_is_cached_after_first_fetch(cached_dir, monkeypatch):
     def fake_get(url, headers=None, timeout=None):
         calls.append(url)
         return _Response(
-            {"0": {"cik_str": 1045810, "ticker": "NVDA", "title": "NVIDIA CORP"}}
+            {
+                "0": {
+                    "cik_str": 1045810,
+                    "ticker": "NVDA",
+                    "title": "NVIDIA CORP",
+                }
+            }
         )
 
     monkeypatch.setattr("requests.get", fake_get)
@@ -121,9 +127,26 @@ def test_directory_is_cached_after_first_fetch(cached_dir, monkeypatch):
     first = ticker_directory.load_directory()
     second = ticker_directory.load_directory()
 
-    assert first == second == [{"ticker": "NVDA", "title": "NVIDIA CORP"}]
+    assert first == second == [
+        {"ticker": "NVDA", "title": "NVIDIA CORP", "cik": "0001045810"}
+    ]
     assert len(calls) == 1  # second call read the cache
     assert (cached_dir / "company_tickers.json").exists()
+
+
+def test_stale_cache_without_cik_is_refetched(cached_dir, monkeypatch):
+    """The fast SEC path needs CIK; an older cache must not silently lack it."""
+    path = cached_dir / "company_tickers.json"
+    path.write_text(json.dumps([{"ticker": "NVDA", "title": "NVIDIA CORP"}]), encoding="utf-8")
+
+    monkeypatch.setattr(
+        "requests.get",
+        lambda *a, **k: _Response(
+            {"0": {"cik_str": 1045810, "ticker": "NVDA", "title": "NVIDIA CORP"}}
+        ),
+    )
+
+    assert ticker_directory.load_directory()[0]["cik"] == "0001045810"
 
 
 def test_missing_contact_email_is_a_clear_error(tmp_path, monkeypatch):
@@ -140,9 +163,11 @@ def test_corrupt_cache_is_refetched(cached_dir, monkeypatch):
 
     monkeypatch.setattr(
         "requests.get",
-        lambda *a, **k: _Response({"0": {"ticker": "MU", "title": "MICRON TECHNOLOGY INC"}}),
+        lambda *a, **k: _Response(
+            {"0": {"cik_str": 723125, "ticker": "MU", "title": "MICRON TECHNOLOGY INC"}}
+        ),
     )
 
     assert ticker_directory.load_directory() == [
-        {"ticker": "MU", "title": "MICRON TECHNOLOGY INC"}
+        {"ticker": "MU", "title": "MICRON TECHNOLOGY INC", "cik": "0000723125"}
     ]

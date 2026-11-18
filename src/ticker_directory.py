@@ -62,11 +62,15 @@ def cache_path() -> Path:
 
 
 def load_directory(*, refresh: bool = False) -> list[dict]:
-    """Return ``[{ticker, title}]``, fetching SEC's map once and caching it."""
+    """Return ``[{ticker, title, cik}]``, fetching SEC's map once and caching it."""
     path = cache_path()
     if path.exists() and not refresh:
         try:
-            return json.loads(path.read_text(encoding="utf-8"))
+            cached = json.loads(path.read_text(encoding="utf-8"))
+            # CIK was added later; an older cache is refetched rather than
+            # silently returning entries the fast SEC path cannot use.
+            if cached and all(entry.get("cik") for entry in cached):
+                return cached
         except (OSError, json.JSONDecodeError):
             pass  # fall through to a refetch
 
@@ -90,7 +94,11 @@ def load_directory(*, refresh: bool = False) -> list[dict]:
 
     payload = response.json()
     entries = [
-        {"ticker": str(item["ticker"]).upper(), "title": str(item["title"])}
+        {
+            "ticker": str(item["ticker"]).upper(),
+            "title": str(item["title"]),
+            "cik": str(item.get("cik_str") or "").zfill(10),
+        }
         for item in payload.values()
     ]
     path.parent.mkdir(parents=True, exist_ok=True)
