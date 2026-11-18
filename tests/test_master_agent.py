@@ -203,6 +203,10 @@ def test_result_always_has_the_canonical_shape(agent, monkeypatch):
         "usage",
         "memory",
         "degraded",
+        # The coverage gate's decision, always present so the UI can show it.
+        "gate",
+        "memory",
+        "degraded",
     }
 
 
