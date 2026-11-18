@@ -6,4 +6,7 @@ Layout:
     src/ui/         Streamlit frontend
 """
 
-__version__ = "0.1.0"
+#: Bumped on every deploy that must be observable in the running app. The sidebar
+#: shows it, so "is the deployed build older than main?" is answered by looking at
+#: the page instead of comparing commit hashes by hand.
+__version__ = "0.3.0"

@@ -19,6 +19,27 @@ from pathlib import Path
 
 import pytest
 
+
+@pytest.fixture(autouse=True)
+def _clear_streamlit_resource_cache():
+    """Streamlit's ``cache_resource`` outlives each AppTest in one process.
+
+    Without this, a UI test that seeded its own store leaves a cached agent
+    behind and the next AppTest silently reuses it against a different
+    ``DB_PATH`` - which shows up as an order-dependent failure. The clear is only
+    attempted when Streamlit is already imported, so non-UI tests pay nothing.
+    """
+    streamlit = sys.modules.get("streamlit")
+    if streamlit is not None:
+        try:
+            streamlit.cache_resource.clear()
+        except Exception:  # noqa: BLE001 - cache clearing is best effort
+            pass
+    yield
+
+
+import pytest
+
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))

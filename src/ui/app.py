@@ -25,7 +25,7 @@ if __package__ in (None, ""):
 import pandas as pd
 import streamlit as st
 
-from src import config, llm, memory
+from src import __version__ as src_version, config, llm, memory
 from src.agent.master_agent import HISTORICAL_MESSAGE, StockResearchAgent
 
 st.set_page_config(page_title="Relate · Stock Research Agent", page_icon="📈", layout="wide")
@@ -110,6 +110,11 @@ with st.sidebar:
         "What does the news say about AI chip demand?",
     ):
         st.caption(f"· {sample}")
+
+    # Which build is actually serving this page. Streamlit Cloud rebuilds are
+    # asynchronous, so "I pushed but the app is unchanged" is otherwise
+    # indistinguishable from a code bug.
+    st.caption(f"build v{src_version}")
 
 # -----------------------------------------------------------------------------
 # Chat state
