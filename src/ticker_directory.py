@@ -83,6 +83,12 @@ def _read(path: Path) -> list[dict] | None:
     return None  # older cache without CIK: refetch rather than return it
 
 
+#: Where the last successful load came from: "cache", "bundle" or "network".
+#: Exposed so the UI can show it; a silent fallback is how the coverage gate
+#: became a no-op on the deployed app without anyone noticing.
+last_source: str | None = None
+
+
 def load_directory(*, refresh: bool = False) -> list[dict]:
     """Return ``[{ticker, title, cik}]`` from cache, bundle, or SEC.
 
@@ -90,6 +96,8 @@ def load_directory(*, refresh: bool = False) -> list[dict]:
     is the offline fallback that makes the deployed app work without a SEC
     contact address, and only then is the network used.
     """
+    global last_source
+
     if refresh:
         path = cache_path()
         try:
@@ -99,10 +107,12 @@ def load_directory(*, refresh: bool = False) -> list[dict]:
 
     cached = _read(cache_path())
     if cached:
+        last_source = "cache"
         return cached
 
     bundled = _read(bundled_path())
     if bundled:
+        last_source = "bundle"
         return bundled
 
     if not config.SEC_CONTACT_EMAIL:
@@ -136,6 +146,7 @@ def load_directory(*, refresh: bool = False) -> list[dict]:
     path = cache_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(entries), encoding="utf-8")
+    last_source = "network"
     return entries
 
 

@@ -148,10 +148,12 @@ class StockResearchAgent:
         # Deterministic coverage gate, before any model call. A question about a
         # company we do not hold would otherwise burn three calls (intent, schema,
         # Cypher) to discover that, and then answer "no data" without saying why.
+        gate = None
+        gate_error = ""
         try:
             gate = coverage.assess(user_question, self._companies())
-        except Exception:  # noqa: BLE001 - the gate is an optimisation, never a blocker
-            gate = None
+        except Exception as exc:  # noqa: BLE001 - the gate is an optimisation, never a blocker
+            gate_error = f"{type(exc).__name__}: {exc}"
         if gate is not None and gate.blocked:
             if coverage.looks_like_price_question(user_question):
                 return self._answer_untracked_price(gate)
@@ -170,6 +172,17 @@ class StockResearchAgent:
             intent=routing["intent"],
             schema_keys=routing["relevant_schema_keys"],
             tickers=routing["tickers"],
+        )
+        # Always expose the gate decision. It is what makes "the gate didn't
+        # fire" a two-second diagnosis in the UI instead of a redeploy loop.
+        result["gate"] = (
+            {
+                "tracked": gate.tracked,
+                "untracked": [ticker for ticker, _ in gate.untracked],
+                "blocked": gate.blocked,
+            }
+            if gate is not None
+            else {"error": gate_error or "not evaluated"}
         )
 
         try:

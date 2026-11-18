@@ -25,7 +25,7 @@ if __package__ in (None, ""):
 import pandas as pd
 import streamlit as st
 
-from src import __version__ as src_version, config, llm, memory
+from src import __version__ as src_version, config, llm, memory, ticker_directory
 from src.agent.master_agent import HISTORICAL_MESSAGE, StockResearchAgent
 
 st.set_page_config(page_title="Relate · Stock Research Agent", page_icon="📈", layout="wide")
@@ -116,6 +116,17 @@ with st.sidebar:
     # indistinguishable from a code bug.
     st.caption(f"build v{src_version}")
 
+    # The coverage gate depends on SEC's ticker registry, which is normally a
+    # downloaded cache. On Cloud that cache does not exist, so its absence is
+    # shown here rather than degrading the gate silently.
+    try:
+        entries = ticker_directory.load_directory()
+        st.caption(
+            f"registry: {len(entries):,} tickers ({ticker_directory.last_source})"
+        )
+    except Exception as exc:  # noqa: BLE001 - diagnostics must not break the app
+        st.caption(f"registry unavailable: {type(exc).__name__}: {str(exc)[:80]}")
+
 # -----------------------------------------------------------------------------
 # Chat state
 # -----------------------------------------------------------------------------
@@ -202,6 +213,8 @@ if prompt := st.chat_input("Ask about a company, its competitors, suppliers or n
         # Telemetry: the four steps, visible.
         with st.expander("🔍 Pipeline telemetry", expanded=False):
             st.markdown(f"**Intent** `{result['intent']}`")
+            if result.get("gate"):
+                st.markdown(f"**Gate** `{result['gate']}`")
             if result["schema_keys"]:
                 st.markdown(f"**Schema keys** `{', '.join(result['schema_keys'])}`")
             if result["tickers"]:
