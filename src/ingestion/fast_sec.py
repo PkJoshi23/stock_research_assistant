@@ -305,6 +305,19 @@ _STARTS_GENERIC = re.compile(
 )
 _RELATIVE_CLAUSE = re.compile(r"\b(?:who|whom|whose|which|that)\b", re.IGNORECASE)
 
+#: A name whose last word is a category is a category, not a company:
+#: "AI model makers", "NVIDIA as direct customers", "ODMs", "CSPs".
+#: Matching the last word (not any word) keeps real names such as
+#: "Taiwan Semiconductor Manufacturing Company Limited".
+_GENERIC_LAST_WORD = re.compile(
+    r"\b(?:odms?|oems?|csps?|isvs?|vars?|sdk|makers?|vendors?|suppliers?|"
+    r"providers?|manufacturers?|companies|company|customers?|players?|firms?|"
+    r"operators?|builders?|partners?|integrators?|sellers?|resellers?|"
+    r"distributors?|suppliers?)$",
+    re.IGNORECASE,
+)
+_PHRASE_AS = re.compile(r"\bas\b", re.IGNORECASE)
+
 #: Sentences that prove the filing *discusses* suppliers without naming them.
 #: AAOI is the canonical case: "a sole source or ... qualified only from a single
 #: supplier", "we depend on a limited number of suppliers" - no names anywhere.
@@ -360,6 +373,8 @@ def _clean_names(chunk: str) -> list[str]:
         if name.lower() in _STOP_NAME:
             continue
         if _STARTS_GENERIC.match(name) or _RELATIVE_CLAUSE.search(name):
+            continue
+        if _GENERIC_LAST_WORD.search(name) or _PHRASE_AS.search(name):
             continue
         if not (name[0].isupper() or name[0].isdigit()):
             continue

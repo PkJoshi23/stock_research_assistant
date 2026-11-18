@@ -96,6 +96,21 @@ def test_deterministic_suppliers_ignores_generic_categories():
     assert names == []
 
 
+def test_category_phrases_are_not_company_names():
+    """Real NVDA 10-K output: acronym categories and 'as' phrases got through."""
+    section = (
+        "We utilize foundries, such as Taiwan Semiconductor Manufacturing Company "
+        "Limited, and ODMs. We sell to CSPs, OEMs, AI model makers and OEMs "
+        "who resell to NVIDIA as direct customers."
+    )
+
+    names = fast_sec.deterministic_suppliers(section)
+
+    assert "Taiwan Semiconductor Manufacturing Company Limited" in names
+    for junk in ("ODMs", "CSPs", "OEMs", "AI model makers", "NVIDIA as direct customers"):
+        assert junk not in names
+
+
 def test_deterministic_suppliers_returns_empty_without_lists():
     assert fast_sec.deterministic_suppliers("We sell optical components.") == []
 
