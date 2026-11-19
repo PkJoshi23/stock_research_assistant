@@ -228,6 +228,9 @@ installed major version before assuming the logic is wrong.
 ## Running
 
 ```bash
+# before any deploy: compile + tests + headless boot, all local (exit 0 = safe)
+.\scripts\verify.ps1
+
 # 0. check readiness (exit code 0 = ready, 1 = empty graph or missing key)
 python -m src.demo
 
