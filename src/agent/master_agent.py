@@ -200,6 +200,18 @@ class StockResearchAgent:
                         user_question, routing["relevant_schema_keys"]
                     )
                 )
+                # Tracked company, empty result: the graph holds the node but no
+                # edges of the kind asked for. Offer to enrich it from SEC rather
+                # than dead-ending - this is the "suppliers of CRWV?" case.
+                if not result.get("rows") and not result.get("error"):
+                    ticker = self._resolve_ticker(user_question, routing["tickers"])
+                    if ticker:
+                        result["enrich"] = {"ticker": ticker, "reason": "no_rows"}
+                        result["answer"] = (
+                            f"I track **{ticker}**, but the graph has no matching "
+                            "edges for that question yet. Its SEC filing may name "
+                            "them - I can read it in about 6 seconds."
+                        )
         except Exception as exc:  # noqa: BLE001 - surface, do not crash the UI
             result["error"] = f"{type(exc).__name__}: {exc}"
             result["answer"] = (

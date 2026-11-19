@@ -259,14 +259,28 @@ last_result = st.session_state.get("last_result") or {}
 last_prompt = st.session_state.get("last_prompt") or ""
 coverage_info = last_result.get("coverage") or {}
 untracked = coverage_info.get("untracked") or []
+enrich = last_result.get("enrich") or {}
 
+# Two ways to end up needing SEC data: the company is unknown (coverage miss) or
+# it is tracked but the graph has no edges for the question ("suppliers of CRWV?").
+fetch_ticker = ""
 if coverage_info.get("can_fetch") and untracked:
     fetch_ticker = untracked[0]["ticker"]
+elif enrich.get("ticker"):
+    fetch_ticker = enrich["ticker"]
+
+if fetch_ticker:
     st.divider()
-    st.caption(
-        f"{fetch_ticker} is not in the graph yet. Reading its latest annual "
-        "report costs one download and about 6 seconds."
-    )
+    if untracked:
+        st.caption(
+            f"{fetch_ticker} is not in the graph yet. Reading its latest annual "
+            "report costs one download and about 6 seconds."
+        )
+    else:
+        st.caption(
+            f"The graph has limited data on {fetch_ticker}. Its annual report may "
+            "name its suppliers or subsidiaries - about 6 seconds to find out."
+        )
     if st.button(
         f"Fetch {fetch_ticker} from SEC and add it",
         key=f"fetch-sec-{fetch_ticker}",

@@ -369,7 +369,7 @@ def supplier_evidence(text: str) -> str | None:
     end = text.find(".", match.end())
     end = end + 1 if end != -1 else len(text)
     sentence = re.sub(r"\s+", " ", text[start:end]).strip()
-    sentence = _PAGE_NOISE.sub("", sentence).strip()
+    sentence = _PAGE_NOISE.sub("", sentence).strip(" •·-")
     return sentence[:300] or None
 
 #: ``", Inc."`` is part of a name, not a list separator. Without this, the split
@@ -439,6 +439,40 @@ def deterministic_suppliers(section: str) -> list[str]:
 _BLOCK_TAG = re.compile(r"</?(?:p|div|li|tr|br|h[1-6])\b[^>]*>", re.IGNORECASE)
 
 
+_EXHIBIT_JUNK = re.compile(
+    r"(?:\.html?$|^document$|ex-?21|name of subsidiary|jurisdiction)",
+    re.IGNORECASE,
+)
+
+#: Jurisdiction column values. Table cells collapse to one line, so the column
+#: arrives as a suffix: "CoreWeave Compute Acquisition Co. II, LLC Delaware".
+_JURISDICTIONS = sorted(
+    {
+        "delaware", "california", "texas", "new york", "florida", "washington",
+        "cayman islands", "british virgin islands", "virgin islands", "bermuda",
+        "ireland", "netherlands", "luxembourg", "singapore", "hong kong",
+        "england and wales", "united kingdom", "united states", "usa", "canada",
+        "japan", "germany", "israel", "china", "taiwan", "south korea", "korea",
+        "switzerland", "france", "australia", "india", "malta", "cyprus",
+        "mauritius", "barbados", "jersey", "guernsey", "sweden", "denmark",
+        "norway", "finland", "spain", "italy", "belgium", "austria", "poland",
+        "mexico", "brazil", "costa rica", "malaysia", "vietnam", "philippines",
+        "indonesia", "thailand", "uae", "united arab emirates", "south africa",
+    },
+    key=len,
+    reverse=True,
+)
+
+
+def _strip_jurisdiction(name: str) -> str:
+    lowered = name.lower()
+    for jurisdiction in _JURISDICTIONS:
+        suffix = " " + jurisdiction
+        if lowered.endswith(suffix):
+            return name[: -len(suffix)].strip(" ,;.-")
+    return name
+
+
 def parse_exhibit21(raw: str) -> list[str]:
     """Parse a subsidiaries exhibit into names."""
     text = _BLOCK_TAG.sub("\n", raw)
@@ -450,14 +484,20 @@ def parse_exhibit21(raw: str) -> list[str]:
     for line in text.split("\n"):
         candidate = _WS.sub(" ", line).strip(" .;:—–-\t")
         # Exhibit 21 rows usually end with the jurisdiction: "Name - Country".
-        candidate = re.split(r"\s+[-\u2013\u2014]\s+", candidate)[0].strip(" .;:")
-        if not (3 <= len(candidate) <= 120):
+        candidate = re.split(r"\s+[-\u2013\u2014]\s+", candidate)[0].strip(" .;:•·-")
+        candidate = _strip_jurisdiction(candidate)
+        if candidate.lower() in _JURISDICTIONS or not (3 <= len(candidate) <= 120):
             continue
         if not re.search(r"[A-Za-z]{3}", candidate):
             continue
         if candidate.lower() in {"name", "jurisdiction", "subsidiaries of the registrant"}:
             continue
         if candidate.lower().startswith(("exhibit 21", "subsidiaries of")):
+            continue
+        # Real filings put the exhibit filename and column headers in the body;
+        # CRWV's list came back with "ex211-coreweaveincx10xk.htm", "Document" and
+        # "Name of Subsidiary Jurisdiction" mixed in with the companies.
+        if _EXHIBIT_JUNK.search(candidate):
             continue
         names.append(candidate)
     return list(dict.fromkeys(names))

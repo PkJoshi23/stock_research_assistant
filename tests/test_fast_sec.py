@@ -133,6 +133,28 @@ def test_exhibit21_parsing_handles_lists_and_headers():
     assert not any("Exhibit 21" in name for name in names)
 
 
+def test_exhibit21_parsing_drops_filenames_and_column_headers():
+    """CRWV's real exhibit included its own filename and the table headers."""
+    raw = """
+    <html><body>
+    <p>ex211-coreweaveincx10xk.htm</p>
+    <p>Document</p>
+    <table>
+      <tr><td>Name of Subsidiary</td><td>Jurisdiction</td></tr>
+      <tr><td>CoreWeave Compute Acquisition Co. II, LLC</td><td>Delaware</td></tr>
+      <tr><td>CoreWeave Compute Acquisition Co. III, LLC</td><td>Delaware</td></tr>
+    </table>
+    </body></html>
+    """
+
+    names = fast_sec.parse_exhibit21(raw)
+
+    assert names == [
+        "CoreWeave Compute Acquisition Co. II, LLC",
+        "CoreWeave Compute Acquisition Co. III, LLC",
+    ]
+
+
 # -- filing discovery --------------------------------------------------------
 
 

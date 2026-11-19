@@ -150,6 +150,42 @@ def test_unknown_ticker_price_is_answered_live(agent, registry, no_model, monkey
     assert result["usage"]["calls"] == 0
 
 
+def test_tracked_but_empty_result_offers_the_fetch(agent, registry, monkeypatch):
+    """'suppliers of CRWV?' - tracked company, no matching edges.
+
+    The node exists, so the coverage gate passes; without this the UI dead-ends
+    on a canned "no data" message and never offers the SEC fetch.
+    """
+    import src.agent.master_agent as master
+
+    monkeypatch.setattr(
+        master,
+        "detect_intent_and_extract_schema",
+        lambda question: {
+            "intent": "graph_query",
+            "relevant_schema_keys": ["supply_chain"],
+            "tickers": ["NVDA"],
+            "reasoning": "",
+        },
+    )
+    monkeypatch.setattr(
+        master,
+        "generate_cypher_query",
+        lambda *a, **k: {"action": "graph_query", "cypher": "MATCH (n) RETURN n", "reasoning": ""},
+    )
+    monkeypatch.setattr(
+        master,
+        "execute_cypher_with_retry",
+        lambda *a, **k: {"rows": [], "cypher": "MATCH (n) RETURN n", "error": "", "attempts": 1},
+    )
+
+    result = agent.ask("who supplies nvidia?")
+
+    assert result["rows"] == []
+    assert result["enrich"]["ticker"] == "NVDA"
+    assert "no matching edges" in result["answer"]
+
+
 def test_tracked_ticker_still_runs_the_pipeline(agent, registry, monkeypatch):
     """The gate must not swallow questions the graph can answer."""
     import src.agent.master_agent as master

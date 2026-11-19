@@ -113,3 +113,36 @@ def test_fetch_report_error_is_shown(ui, monkeypatch):
 
     assert not ui.exception
     assert any("HTTP 403" in warning.value for warning in ui.warning)
+
+
+def test_tracked_but_empty_answer_offers_the_fetch(ui, monkeypatch):
+    """CRWV is tracked, so the gate passes; an empty result must still offer SEC."""
+    from src.agent.master_agent import StockResearchAgent
+
+    monkeypatch.setattr(
+        StockResearchAgent,
+        "ask",
+        lambda self, question: {
+            "intent": "graph_query",
+            "schema_keys": ["supply_chain"],
+            "tickers": ["CRWV"],
+            "cypher": "MATCH (n) RETURN n",
+            "rows": [],
+            "answer": "I track **CRWV**, but the graph has no matching edges yet.",
+            "error": "",
+            "sources": [],
+            "usage": {},
+            "memory": {},
+            "degraded": False,
+            "gate": {"tracked": ["CRWV"], "untracked": [], "blocked": False},
+            "enrich": {"ticker": "CRWV", "reason": "no_rows"},
+        },
+    )
+
+    ui.chat_input[0].set_value("suppliers of crw?").run()
+
+    assert not ui.exception
+    keys = [button.key for button in ui.button]
+    assert "fetch-sec-CRWV" in keys
+    captions = " ".join(caption.value for caption in ui.caption)
+    assert "limited data on CRWV" in captions
