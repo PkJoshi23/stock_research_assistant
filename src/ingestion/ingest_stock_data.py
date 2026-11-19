@@ -159,7 +159,7 @@ def upsert_stock(conn, snapshot: dict) -> None:
     ("Lowe's"), and the previous implementation's manual escaping was one
     unescaped character away from a Cypher injection into the demo graph.
     """
-    relate_db.run(
+    relate_db.query(
         conn,
         f"""
         MERGE (s:{STOCK} {{ticker: $ticker}})
@@ -174,10 +174,10 @@ def upsert_stock(conn, snapshot: dict) -> None:
         """,
         {**snapshot, "updated_at": dt.datetime.now()},
     )
-    relate_db.run(
+    relate_db.query(
         conn, f"MERGE (sec:{SECTOR} {{name: $sector}})", {"sector": snapshot["sector"]}
     )
-    relate_db.run(
+    relate_db.query(
         conn,
         f"""
         MATCH (s:{STOCK} {{ticker: $ticker}}), (sec:{SECTOR} {{name: $sector}})
@@ -194,7 +194,7 @@ def write_relationship(conn, source: str, target: str, rel_type: str) -> None:
     relationship type. Every caller passes a module-level constant, never user
     input.
     """
-    relate_db.run(
+    relate_db.query(
         conn,
         f"""
         MATCH (a:{STOCK} {{ticker: $source}}), (b:{STOCK} {{ticker: $target}})
@@ -206,11 +206,11 @@ def write_relationship(conn, source: str, target: str, rel_type: str) -> None:
 
 def write_person(conn, name: str, role: str, ticker: str) -> None:
     """Merge a person and their WORKS_FOR edge."""
-    relate_db.run(
+    relate_db.query(
         conn, f"MERGE (p:{PERSON} {{name: $name}}) SET p.role = $role",
         {"name": name, "role": role},
     )
-    relate_db.run(
+    relate_db.query(
         conn,
         f"""
         MATCH (p:{PERSON} {{name: $name}}), (s:{STOCK} {{ticker: $ticker}})

@@ -428,6 +428,44 @@ def test_ingest_without_annual_report_is_reported(seeded, monkeypatch):
     assert any("10-K or 20-F" in note for note in report.notes)
 
 
+def test_ingest_writes_a_snapshot_through_a_session(seeded, monkeypatch):
+    """The app holds a GraphSession, not a raw connection.
+
+    Every other write test disabled the snapshot fetch, so this path - the one
+    the deployed button actually takes - was never exercised and failed with
+    "GraphSession has no attribute execute".
+    """
+    _patch_fetch(monkeypatch)
+    snapshot = {
+        "ticker": "AAOI",
+        "name": "Applied Optoelectronics, Inc.",
+        "sector": "Technology",
+        "industry": "Optical Components",
+        "market_cap": 1_000_000_000,
+        "pe_ratio": None,
+        "current_price": 39.81,
+        "aliases": [],
+    }
+    monkeypatch.setattr(
+        fast_sec.stocks, "fetch_snapshot", lambda ticker: dict(snapshot, ticker=ticker)
+    )
+    monkeypatch.setattr(fast_sec, "_resolve_name", lambda conn, name, directory: None)
+    monkeypatch.setattr(
+        fast_sec.ticker_directory,
+        "TickerDirectory",
+        type("_Dir", (), {"load": classmethod(lambda cls: None)}),
+    )
+
+    report = fast_sec.ingest(seeded, "AAOI", write=True, allow_model=False)
+
+    assert report.wrote is True
+    rows = seeded.run(
+        f"MATCH (s:{STOCK} {{ticker: 'AAOI'}}) RETURN s.current_price AS price, s.sector AS sector"
+    )
+    assert rows and rows[0]["price"] == 39.81
+    assert rows[0]["sector"] == "Technology"
+
+
 def test_20f_skips_exhibit21(seeded, monkeypatch):
     _patch_fetch(monkeypatch, with_exhibit=False)
     monkeypatch.setattr(
