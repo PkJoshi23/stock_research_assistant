@@ -44,22 +44,6 @@ def test_filing_evidence_is_reported_when_edges_carry_it(seeded):
     assert "10-K" in labels
 
 
-def test_headline_urls_are_surfaced_and_capped(seeded):
-    rows = [
-        {"title": f"Headline {index}", "url": f"https://ex.com/{index}"}
-        for index in range(5)
-    ]
-    sources = provenance.collect(seeded, None, rows)
-    news = [source for source in sources if source["type"] == "news"]
-    assert len(news) == provenance._MAX_HEADLINES
-    assert news[0]["url"] == "https://ex.com/0"
-
-
-def test_rows_without_urls_do_not_become_news_sources(seeded):
-    sources = provenance.collect(seeded, None, [{"title": "no link here"}])
-    assert "news" not in _types(sources)
-
-
 def test_snapshot_timestamp_is_reported_when_present(seeded):
     seeded.run(
         f"MATCH (s:{STOCK} {{ticker: 'NVDA'}}) SET s.updated_at = $now",

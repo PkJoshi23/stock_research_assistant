@@ -36,10 +36,8 @@ python-dotenv>=1.0.0
 # Nothing from yfinance is ever persisted as a time series. See README.
 yfinance>=0.2.40
 
-# --- News ingestion ----------------------------------------------------------
-# Google News RSS (parsed with feedparser) + yfinance's search feed.
-# No API key is required for either source - NewsAPI was dropped.
-feedparser>=6.0.10
+# --- HTTP --------------------------------------------------------------------
+# SEC filings and the registrant map; no API key required.
 requests>=2.31.0
 
 # --- SEC EDGAR ---------------------------------------------------------------
@@ -48,11 +46,6 @@ requests>=2.31.0
 sec-edgar-downloader>=5.0.0
 beautifulsoup4>=4.12.0
 lxml>=5.0.0  # optional: faster parsing of large 10-K documents
-
-# --- Embeddings --------------------------------------------------------------
-# Local sentence-embedding model for the news vector index. Pulls in torch,
-# so this is the heaviest dependency in the stack (~2 GB on Windows).
-sentence-transformers>=3.0.0
 
 # --- UI ----------------------------------------------------------------------
 streamlit>=1.36.0

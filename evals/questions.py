@@ -114,11 +114,6 @@ EVAL_FIXTURE: list[tuple[str, dict]] = [
 #: The exact vector-search template the schema documents. Offline it is never
 #: executed (that would load the embedding model); it is still run through the
 #: read-only guard, which is what this entry checks.
-_NEWS_VECTOR_TEMPLATE = """CALL db.index.vector.queryNodes('news_embedding_idx', $k, $query_vector)
-YIELD node, score
-RETURN node.title AS title, node.source AS source, node.published AS published, score
-ORDER BY score DESC"""
-
 #: Why the deterministic fallback cannot satisfy the product intent. The router
 #: fallback has only three branches (historical / live price / everything else),
 #: so an unrelated question is deliberately routed to ``graph_query``. That is a
@@ -372,53 +367,6 @@ QUESTIONS: tuple[Question, ...] = (
         expected_columns=frozenset({"sector"}),
         expected_row_count=1,
         expected_cells=(("sector", "Technology"),),
-    ),
-    # ------------------------------------------------------------------
-    # News - per-stock mention traversal, and the semantic template.
-    # ------------------------------------------------------------------
-    Question(
-        id="news_nvda",
-        category="news",
-        question="What recent news mentions Nvidia?",
-        expected_intent=INTENT_GRAPH_QUERY,
-        expected_schema_keys=frozenset({"news_by_stock"}),
-        reference_cypher=(
-            "MATCH (s:Stock {ticker: 'NVDA'})-[:MENTIONED_IN]->(n:NewsArticle) "
-            "RETURN n.title AS title, n.source AS source "
-            "ORDER BY n.published DESC LIMIT 5"
-        ),
-        expected_columns=frozenset({"title", "source"}),
-        expected_row_count=3,
-        expected_cells=(("title", "Nvidia beats earnings"),),
-        live=True,
-    ),
-    Question(
-        id="news_amd",
-        category="news",
-        question="Show me news about AMD",
-        expected_intent=INTENT_GRAPH_QUERY,
-        expected_schema_keys=frozenset({"news_by_stock"}),
-        reference_cypher=(
-            "MATCH (s:Stock {ticker: 'AMD'})-[:MENTIONED_IN]->(n:NewsArticle) "
-            "RETURN n.title AS title, n.source AS source "
-            "ORDER BY n.published DESC LIMIT 5"
-        ),
-        expected_columns=frozenset({"title", "source"}),
-        expected_row_count=1,
-        expected_cells=(("title", "AMD launches new chip"),),
-    ),
-    Question(
-        id="news_semantic",
-        category="news",
-        question="What is the market saying about AI chips?",
-        expected_intent=INTENT_GRAPH_QUERY,
-        expected_schema_keys=frozenset({"news_semantic_search"}),
-        reference_cypher=_NEWS_VECTOR_TEMPLATE,
-        # Executing this would load the embedding model; offline only the
-        # read-only guard is checked. Reaching the vector index is a live /
-        # ingestion concern, not an offline one.
-        execute_reference=False,
-        live=True,
     ),
     # ------------------------------------------------------------------
     # Live price - answered by yfinance, not the graph. Offline only the

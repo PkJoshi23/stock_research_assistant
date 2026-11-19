@@ -22,7 +22,7 @@ from typing import Any
 import relate
 
 from . import config
-from .schema import NEWS, STOCK, VECTOR_INDEX_NAME, VECTOR_PROPERTY
+from .schema import STOCK
 
 
 def connect(*, read_only: bool = False) -> relate.Connection:
@@ -71,24 +71,11 @@ def query(target, cypher: str, params: dict[str, Any] | None = None) -> list[dic
 def ensure_schema(conn: relate.Connection) -> None:
     """Create the indexes the read path depends on. Idempotent.
 
-    * ``stock_ticker_idx`` keeps ``MATCH (s:Stock {ticker: ...})`` a lookup
-      instead of a scan - the agent does this on almost every query.
-    * the vector index makes semantic news search possible. Relate creates it
-      empty and populates it as nodes are written, so call this *before*
-      ingesting news.
+    ``stock_ticker_idx`` keeps ``MATCH (s:Stock {ticker: ...})`` a lookup instead
+    of a scan - the agent does this on almost every query.
     """
     conn.execute(
         f"CREATE INDEX stock_ticker_idx IF NOT EXISTS FOR (s:{STOCK}) ON (s.ticker)"
-    )
-    conn.execute(
-        f"""
-        CREATE VECTOR INDEX {VECTOR_INDEX_NAME} IF NOT EXISTS
-        FOR (n:{NEWS}) ON (n.{VECTOR_PROPERTY})
-        OPTIONS {{indexConfig: {{
-            `vector.dimensions`: {config.EMBEDDING_DIM},
-            `vector.similarity_function`: 'cosine'
-        }}}}
-        """
     )
 
 

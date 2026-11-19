@@ -1,7 +1,7 @@
 # AI Stock Research Assistant
 
 An AI agent that answers stock questions by reasoning over a **connected graph** of
-companies, sectors, people and news — not over a table of historical prices.
+companies, sectors, people and their SEC-filed relationships - not over a table of historical prices.
 
 Built for the [Relate by Neo4j Hackathon](https://relate.devpost.com/).
 
@@ -13,7 +13,7 @@ Most stock tools are time-series products: a chart, a moving average, a
 candlestick. This one is a **relationship** product. It answers questions like:
 
 > *"Which companies in the chip supply chain does my portfolio depend on, and
-> what happened in the news for the suppliers I own directly?"*
+> which of their suppliers are named in their SEC filings?"*
 
 That question has no chart. It has a subgraph. Everything here is designed to
 find, rank and explain that subgraph.
@@ -27,7 +27,7 @@ anything that breaks them.
 
 | Rule | What it means in practice |
 | --- | --- |
-| **Pure graph. No time series.** | The graph stores entities, relationships, current snapshot values and news. There is no `Price(date, close)` node type, and no daily OHLCV anywhere. |
+| **Pure graph. No time series.** | The graph stores entities, relationships and current snapshot values. There is no `Price(date, close)` node type, and no daily OHLCV anywhere. |
 | **Current prices are fetched live, never stored.** | `yfinance` is called at query time for a *current* quote. The number is returned to the user and thrown away. |
 | **Historical-trend questions are declined.** | If the user asks for a price chart or a 5-year trend, the agent explains that it focuses on connected context rather than historical charts, and offers what it *can* do. |
 | **Runtime is a library, not a server.** | The graph is an embedded store opened in-process by `relate.connect()`. Nothing listens on a port. |
@@ -76,9 +76,7 @@ An uncapped retry loop is an unbounded bill.
 | Graph | [`relate-db`](https://pypi.org/project/relate-db/) 1.0.2 (imports as `relate`) | Embedded, in-process Cypher engine. No daemon to deploy. |
 | LLM | DeepSeek `deepseek-chat` via the `openai` SDK | OpenAI-compatible endpoint, so the SDK and tooling are unchanged. |
 | Market data | `yfinance` | Current snapshot quotes only, never persisted. |
-| News | Google News RSS (`feedparser`) + `yfinance` search | Key-less sources. RSS supplies summaries, which embed far better than bare headlines. |
 | Filings | `sec-edgar-downloader` + `beautifulsoup4` | Primary documents: officers/directors (DEF 14A), subsidiaries and suppliers (10-K). |
-| Embeddings | `sentence-transformers` (`all-MiniLM-L6-v2`) | Local, CPU-friendly, 384 dimensions. No per-query API cost. |
 | UI | `streamlit` | One process, chat + graph view. |
 | Visualisation | `pyvis` (vis.js) | Renders the answer's one-hop neighbourhood as a self-contained HTML iframe. |
 
@@ -95,10 +93,8 @@ stock-research-agent/
 │   ├── schema.py             # single source of truth for labels + mini-schema
 │   ├── relate_db.py          # connection, indexes, GraphSession (thread-safe)
 │   ├── llm.py                # the only DeepSeek client
-│   ├── embeddings.py         # sentence-transformers, loaded once
 │   ├── ingestion/
 │   │   ├── ingest_stock_data.py    # stocks, sectors, relationships, people
-│   │   └── ingest_connected_news.py # RSS + yfinance news, embedded
 │   ├── agent/
 │   │   ├── agent_router.py      # Step 1 + 2: intent, mini-schema, tickers
 │   │   ├── cypher_generator.py  # Step 3: Cypher from the mini-schema only
@@ -119,13 +115,11 @@ stock-research-agent/
          market_cap, pe_ratio, current_price, updated_at})
 (:Sector {name})
 (:Person {name, role})
-(:NewsArticle {url, title, source, summary, published, embedding[384]})
 
 (:Stock)-[:IN_SECTOR]->(:Sector)
 (:Stock)-[:COMPETES_WITH]-(:Stock)      # stored one way, queried undirected
 (:Stock)-[:SUPPLIES_TO]->(:Stock)       # supplier -> customer
 (:Person)-[:WORKS_FOR]->(:Stock)
-(:Stock)-[:MENTIONED_IN]->(:NewsArticle)
 ```
 
 Two properties exist for reasons worth knowing:
@@ -136,18 +130,6 @@ Two properties exist for reasons worth knowing:
 * **`updated_at`** is the single timestamp on a node. It exists so the UI can
   say *as of when*, not so the graph can be queried by date - there is still no
   price history anywhere.
-
-### How news is ingested
-
-Two key-less sources, merged and de-duplicated on canonical URL:
-
-1. **Google News RSS** (primary) - `https://news.google.com/rss/search?q=...`
-2. **`yfinance`** (secondary) - `yf.Search(ticker, news_count=n).news`
-
-`Ticker.news` is deliberately **not** used: in yfinance 1.4.1 it raises
-`YFDataException: *** YAHOO! FINANCE IS CURRENTLY DOWN! ***` on every call, while
-`yf.Search(...).news` works. Re-running is idempotent: articles are matched on
-`url`, and a shared article still gets its edge for every stock that mentions it.
 
 ### Note on the database file
 
@@ -201,58 +183,39 @@ These bit us during setup. They are not opinions - each was reproduced and fixed
 
 1. **pip's HTTP cache hangs installs.**
    With the default cache, `pip install` fetches the index page, then stalls
-   indefinitely at 100% CPU without downloading anything (reproduced on
-   `torch`, `numpy`, and even `newsapi-python`). The cache directory was
-   ~5.9 GB. Fix: **always pass `--no-cache-dir`**, which resolves in seconds.
+   indefinitely at 100% CPU without downloading anything. The cache directory
+   was ~5.9 GB. Fix: **always pass `--no-cache-dir`**, which resolves in seconds.
 
    ```bash
    pip install --no-cache-dir -r requirements.txt
    ```
 
 2. **The venv inherits the global stack.**
-   The system Python 3.11 already has `torch`, `yfinance`, `openai`,
-   `streamlit`, `numpy`, `pandas` and `python-dotenv`. The venv is created with
-   `--system-site-packages` so those ~2 GB of wheels are not re-downloaded:
+   The system Python 3.11 already has `yfinance`, `openai`, `streamlit`,
+   `numpy`, `pandas` and `python-dotenv`. The venv is created with
+   `--system-site-packages` so those wheels are not re-downloaded:
 
    ```bash
    python -m venv --system-site-packages .venv
    ```
 
-   Only `relate-db`, `sentence-transformers`, `feedparser` and `requests` are
-   installed into the venv itself.
-
-3. **`~/.cache` is read-only in sandboxed sessions.**
-   `SentenceTransformer(...)` fails with `WinError 5` when it tries to write the
-   model there. `src/config.py` therefore sets `HF_HOME` to the project-local
-   `.cache/huggingface` *before* `sentence_transformers` is imported, and the
-   directory is gitignored.
-
-4. **Hugging Face's Xet download backend stalls.**
-   With Xet enabled, the 90 MB MiniLM model download sits at 0 bytes forever and
-   never errors. `src/config.py` sets `HF_HUB_DISABLE_XET=1`, after which the
-   same download completes in under a minute over plain HTTP. Keep that flag.
-
-5. **`yfinance` fails with `OperationalError: unable to open database file`.**
+3. **`yfinance` fails with `OperationalError: unable to open database file`.**
    Despite how it reads, this is not a market-data or network error: yfinance
    keeps SQLite cookie/timezone caches in a user-level directory that is not
    writable here, and it exposes no environment variable to move them. Call
    `config.configure_yfinance_cache()` once before the first `yf.Ticker(...)`.
 
-All five are handled in code/config now - a fresh clone needs no manual steps
+All three are handled in code/config now - a fresh clone needs no manual steps
 beyond `pip install --no-cache-dir` and a `.env`.
 
 ### Verified versions (2026-11-17)
 
 | Package | Version | Note |
 | --- | --- | --- |
-| `relate-db` | 1.0.2 | imports as `relate`; vector index verified |
-| `sentence-transformers` | 6.3.0 | all-MiniLM-L6-v2, 384-d, CPU |
-| `torch` | 2.12.1 | from the system interpreter |
-| `transformers` | 5.20.1 | major version 5 - watch for API changes |
+| `relate-db` | 1.0.2 | imports as `relate`; embedded, no server |
 | `openai` | 2.45.0 | client constructs against the DeepSeek base URL |
 | `streamlit` | 1.58.0 | |
-| `yfinance` | 1.4.1 | major version 1 - `fast_info` / `info` confirmed working; `Ticker.news` is broken, use `yf.Search().news` |
-| `feedparser` | 6.0.14 | Google News RSS |
+| `yfinance` | 1.4.1 | major version 1 - `fast_info` / `info` confirmed working |
 | `python-dotenv` | 1.0.0 | |
 | `numpy` / `pandas` | 2.4.6 / 3.0.5 | from the system interpreter |
 
@@ -275,7 +238,6 @@ python -m src.demo --seed --discover --depth 1
 python -m src.demo --seed            # all three ingestions, in order
 # or step by step:
 python -m src.ingestion.ingest_stock_data
-python -m src.ingestion.ingest_connected_news
 python -m src.ingestion.ingest_sec_relationships   # needs SEC_CONTACT_EMAIL
 python -m src.ingestion.discover_supply_chain --depth 1   # crawl suppliers
 
@@ -287,9 +249,7 @@ streamlit run src/ui/app.py
 ```
 
 Both ingestion scripts accept `--reset`. Note the two resets differ:
-`ingest_stock_data --reset` wipes **every** node (news included, so re-run the
-news step), while `ingest_connected_news --reset` only replaces news and is what
-you want after changing the embedding model.
+`ingest_stock_data --reset` wipes **every** node, so re-run the SEC step after it.
 
 ### Thread affinity (why `GraphSession` exists)
 
@@ -442,21 +402,20 @@ Every answered question renders a **one-hop** map of the entities it touched
 | Stock | circle | blue |
 | Sector | database | green |
 | Person (executive) | triangle | orange |
-| NewsArticle | square | purple |
 
 Edges are labelled and differ in dash pattern as well as colour, so the map
 still reads when projected and for colour-blind viewers.
 
 Design notes:
 
-* **One hop, not two.** Two hops over 60+ news nodes produces a hairball. The
+* **One hop, not two.** Two hops produces a hairball that says nothing. The
   question the UI is asking is "what is this company connected to?", which one
   hop answers.
 * **Property-only Cypher.** Queries return scalars (`n.title`, `s.ticker`), not
   whole nodes: Relate hands back native `Node` objects that do not survive JSON
   or Streamlit, and falling back to `"Unknown"` collapses every headline into a
   single node.
-* **Namespaced ids** (`Stock:NVDA`, `Sector:Technology`, `News:<url>`) prevent
+* **Namespaced ids** (`Stock:NVDA`, `Sector:Technology`, `Supplier:TSMC`) prevent
   collisions between a company, a sector and a headline.
 * **HTML string, not a temp file.** `st.iframe(html)` takes the document
   directly; writing `temp_graph.html` per question leaks files and races when two
@@ -477,12 +436,12 @@ app's single-writer lease).
 
 | File | Covers |
 | --- | --- |
-| `test_schema.py` | the dictionary is a contract: no `Company` label, P/E present, vector placeholders intact |
+| `test_schema.py` | the dictionary is a contract: no `Company` label, P/E present, every declared key rendered |
 | `test_relate_db.py` | plain-dict rows, index creation, and the **thread-affinity regression** (`GraphSession` from a foreign thread, raw connection refused) |
-| `test_cypher_executor.py` | read-only guard (blocks writes, allows keywords inside string literals), `$query_vector` injection, bounded repair loop |
+| `test_cypher_executor.py` | read-only guard (blocks writes, allows keywords inside string literals), bounded repair loop |
 | `test_agent_router.py` | historical deflection, live-price routing, ticker validation, LLM-down fallbacks |
 | `test_ingestion.py` | idempotent upserts, URL de-duplication, shared-article edges, RSS/HTML normalisation |
-| `test_visualization.py` | node kinds, namespaced ids, supply-edge orientation, per-stock news cap, self-contained HTML |
+| `test_visualization.py` | node kinds, namespaced ids, supply-edge orientation, self-contained HTML |
 | `test_master_agent.py` | intent dispatch, deflection, live price not persisted, alias resolution, canonical result shape |
 | `test_cypher_generator.py` | few-shot examples are schema-gated and capped; supplier example uses the polymorphic pattern |
 | `test_offline.py` | deterministic fallbacks per question shape, plus the two degradation paths through the agent |
@@ -503,9 +462,9 @@ Three real defects were found by writing these, not by reading the code:
 1. `"What was Microsoft's price last month?"` routed to `graph_query` — the
    heuristic only matched `past N months`, never `last month`. Fixed in
    `agent_router._fallback`.
-2. `write_articles` embedded and counted duplicate URLs within a single batch
-   (MERGE collapsed the node, but the report said "2 written"). Now de-duplicated
-   before embedding.
+2. The graph writers called `relate_db.run` directly, so the same code crashed
+   when handed a `GraphSession` (`no attribute 'execute'`). They now use the
+   session-aware adapter.
 3. `relate_db.run` returned `relate.Record` (a dict subclass) despite promising
    plain dicts; it now converts, so rows are exactly `dict` for JSON/DataFrames.
 
@@ -520,7 +479,7 @@ agent degrades instead of failing:
 | Failure | Behaviour |
 | --- | --- |
 | Router unavailable | Heuristic fallback (historical/live/graph), no crash |
-| Generator unavailable | `src/agent/offline.py` serves the demo's question shapes (suppliers, subsidiaries, board, competitors, news, sector) with fixed Cypher |
+| Generator unavailable | `src/agent/offline.py` serves the demo's question shapes (suppliers, subsidiaries, board, competitors, sector) with fixed Cypher |
 | Summariser unavailable after a successful query | Rows are rendered directly rather than discarded |
 
 Every degraded answer is flagged (`result["degraded"]`) and the UI shows a
@@ -533,18 +492,6 @@ from: row count, DEF 14A officer links, 10-K-confirmed supplier relationships,
 the snapshot timestamp, and up to three headline URLs. It fetches nothing, so
 the evidence cannot disagree with the answer. Surfaced in the UI under
 *Sources & freshness*.
-
-### News entity linking
-
-An article is linked to **every** tracked company it names, not just the one it
-was fetched for: `src/entities.py` scans title and summary using tickers, names
-and aliases. Edges carry `via='search'` (fetched for that company) or
-`via='mention'` (found by scanning). Syndicated copies of the same story are
-dropped using a normalised-title similarity threshold.
-
-Matching is deliberately asymmetric: acronyms (`TSMC`, `AWS`) match
-case-sensitively with a 2-character minimum, so Ford's `F` only matches as
-"Ford"; word-style names match case-insensitively from 3 characters.
 
 ### Measuring quality
 
@@ -583,7 +530,7 @@ text. Memory records what was asked, not a second copy of the graph's content.
 
 ### Untrusted content (prompt-injection hardening)
 
-News headlines and filing text are attacker-controlled in principle and both
+SEC filing text is attacker-controlled in principle and
 reach a model. `src/safety.py` applies two layers:
 
 1. **Neutralise instruction markers** — "ignore previous instructions",
@@ -617,7 +564,7 @@ Shown in the UI as *"3 model call(s) · 1,598 tokens · 2,640 ms wall"*.
 | 1 | Schema dictionary + typed models for every pipeline step | done (`src/schema.py`) |
 | 2 | Relate data layer: connect, indexes, thread-safe session | done (`src/relate_db.py`) |
 | 3 | Ingestion: stocks, sectors, relationships, snapshots, aliases | done |
-| 4 | News ingestion + embeddings + native vector index | done (RSS + yfinance) |
+| 4 | News ingestion + embeddings + native vector index | removed - cut as out of scope (pure research) |
 | 5 | Step 1 intent detection incl. historical-trend deflection | done |
 | 6 | Step 2 schema extraction (relevant keys only) | done |
 | 7 | Step 3 Cypher generation from the mini-schema | done |
@@ -631,10 +578,10 @@ Shown in the UI as *"3 model call(s) · 1,598 tokens · 2,640 ms wall"*.
 | 15 | Demo readiness check (`python -m src.demo`) | done |
 | 16 | LLM-outage fallback (deterministic answers, degraded flag) | done |
 | 17 | Answer provenance (rows, filings, snapshot, headlines) | done |
-| 18 | News entity linking + syndication dedupe | done |
+| 18 | News entity linking + syndication dedupe | removed with the news feature |
 | 19 | Offline eval harness (`python -m evals.run`) | done |
 | 20 | Agent memory: questions, repeat counts, interest profile | done |
-| 21 | Prompt-injection hardening for news and filings | done |
+| 21 | Prompt-injection hardening for filings | done |
 | 22 | Cost/latency telemetry per answer | done |
 | 23 | Supply-chain discovery: hardcoded seeds, 10-K/20-F crawl, cycles | done |
 | 24 | Public deployment (deliberately last) | pending |
@@ -650,28 +597,8 @@ Probed against the real engine, not assumed from docs:
 | Open a single-file store at `data/stock_graph.rl` | works; WAL/checkpoint handled internally |
 | Create a node with scalar properties and read it back | works |
 | `SHOW INDEXES` | works; returns built-in `LOOKUP` indexes |
-| `CREATE VECTOR INDEX ... OPTIONS {indexConfig: {...}}` | **works** |
-| `CALL db.index.vector.queryNodes(name, k, $vector) YIELD node, score` | **works** |
-| `CALL db.idx.vector.queryNodes(...)` (older Neo4j 4 naming) | not supported |
-| Constructing `relate.Vector(...)` from Python | **not supported** - store a plain `list[float]`; the engine converts it (it returns `list` on readback) |
-
-So news similarity search uses the **native vector index**, not a Python-side
-cosine fallback. Working DDL:
-
-```cypher
-CREATE VECTOR INDEX news_embedding_idx IF NOT EXISTS
-FOR (n:News) ON (n.embedding)
-OPTIONS {indexConfig: {`vector.dimensions`: 384, `vector.similarity_function`: 'cosine'}}
-```
-
-```cypher
-CALL db.index.vector.queryNodes('news_embedding_idx', 5, $query_vector)
-YIELD node, score
-RETURN node.title, score
-```
-
-Note the `db.index.*` namespace, not `db.idx.*`, and that the query vector is a
-plain list - not a `relate.Vector`.
+The graph no longer uses vector search: news was removed, and with it the
+embedding model and the native vector index.
 
 ## Open questions (to settle during implementation)
 
@@ -680,10 +607,6 @@ plain list - not a `relate.Vector`.
 2. **Schema dictionary location.** It belongs next to the agent that consumes it,
    but ingestion must agree with it. Settle the single source of truth in step 1
    of the roadmap before any Cypher is generated.
-3. **`DETACH DELETE` and index maintenance.** The vector index is populated on
-   write; re-ingesting news must be verified against a re-created index rather
-   than assumed.
-
 ---
 
 ## Licence

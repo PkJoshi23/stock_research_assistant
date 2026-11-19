@@ -51,7 +51,7 @@ def test_short_or_ambiguous_tokens_do_not_block(registry):
     for question in (
         "who supplies on the market?",
         "what does ai mean here?",
-        "open the news about chips",
+        "open the market data about chips",
     ):
         assert not coverage.assess(question, COMPANIES).blocked, question
 
@@ -64,7 +64,7 @@ def test_a_tracked_mention_disables_the_gate(registry):
 
 
 def test_thematic_question_passes_through(registry):
-    gate = coverage.assess("what does the news say about AI chip demand?", COMPANIES)
+    gate = coverage.assess("what does the market say about AI chip demand?", COMPANIES)
 
     assert gate.untracked == []
     assert not gate.blocked

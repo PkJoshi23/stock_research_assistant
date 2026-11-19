@@ -30,7 +30,7 @@ from dataclasses import dataclass, field
 from src import entities, ticker_directory
 
 #: Words that are also tickers but are far more often ordinary English. Without
-#: this, "what does the news say about all of this?" would ask about ALL.
+#: this, "what does the market say about all of this?" would ask about ALL.
 _STOPWORDS = {
     "the", "and", "for", "with", "from", "that", "this", "what", "who", "whom",
     "which", "when", "where", "why", "how", "are", "was", "were", "been", "being",
@@ -40,7 +40,7 @@ _STOPWORDS = {
     "under", "after", "before", "between", "during", "through", "against",
     "because", "while", "some", "any", "all", "most", "more", "less", "much",
     "many", "such", "only", "own", "same", "other", "both", "each", "few",
-    "very", "just", "now", "today", "latest", "current", "recent", "news",
+    "very", "just", "now", "today", "latest", "current", "recent",
     "stock", "stocks", "price", "prices", "trading", "quote", "supplier",
     "suppliers", "supply", "supplies", "competitor", "competitors", "sector",
     "executive", "executives", "board", "subsidiary", "subsidiaries", "graph",

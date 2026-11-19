@@ -25,7 +25,7 @@ if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from src import config, relate_db
-from src.schema import NEWS, PERSON, QUERY, SECTOR, STOCK, SUBSIDIARY, SUPPLIER
+from src.schema import PERSON, QUERY, SECTOR, STOCK, SUBSIDIARY, SUPPLIER
 
 #: Questions that exercise each pillar of the graph - deliberately the same
 #: shapes the README advertises.
@@ -36,7 +36,6 @@ SAMPLE_QUESTIONS = (
     "Who is on Nvidia's board of directors?",
     "What is NVDA trading at right now?",
     "How has Tesla's stock performed since 2020?",
-    "What does the news say about AI chip demand?",
 )
 
 
@@ -49,15 +48,6 @@ def build_report(session) -> dict:
     counts = session.counts()
     indexes = session.indexes()
 
-    newest = None
-    if counts.get(NEWS):
-        rows = session.run(
-            f"MATCH (n:{NEWS}) WHERE n.published IS NOT NULL "
-            "RETURN n.published AS published ORDER BY n.published DESC LIMIT 1"
-        )
-        if rows:
-            newest = rows[0]["published"]
-
     return {
         "db_path": str(config.DB_PATH),
         "store_exists": config.DB_PATH.exists(),
@@ -66,7 +56,6 @@ def build_report(session) -> dict:
         "nodes": sum(counts.values()),
         "has_llm_key": bool(config.DEEPSEEK_API_KEY),
         "has_sec_contact": bool(config.SEC_CONTACT_EMAIL),
-        "newest_news": str(newest) if newest else None,
     }
 
 
@@ -80,16 +69,12 @@ def render(report: dict) -> list[str]:
         _line(bool(counts), "populated", f"{report['nodes']} nodes" if counts else "EMPTY - run the seed step"),
     ]
 
-    for label in (STOCK, SECTOR, PERSON, NEWS, SUBSIDIARY, SUPPLIER, QUERY):
+    for label in (STOCK, SECTOR, PERSON, SUBSIDIARY, SUPPLIER, QUERY):
         if counts.get(label):
             lines.append(f"         {label:<22} {counts[label]}")
 
     lines.append(
-        _line(
-            "news_embedding_idx" in report["indexes"],
-            "vector index",
-            ", ".join(report["indexes"]) or "none",
-        )
+        _line(bool(report["indexes"]), "indexes", ", ".join(report["indexes"]) or "none")
     )
     lines.append(
         _line(
@@ -106,22 +91,18 @@ def render(report: dict) -> list[str]:
         )
     )
 
-    if report["newest_news"]:
-        lines.append(f"         newest headline        {report['newest_news']}")
     return lines
 
 
 def seed() -> int:
-    """Build the graph in dependency order: stocks, news, then SEC filings."""
+    """Build the graph in dependency order: stocks, then SEC filings."""
     from src.ingestion import (
-        ingest_connected_news,
-        ingest_sec_relationships,
+            ingest_sec_relationships,
         ingest_stock_data,
     )
 
-    print("Seeding: stocks -> news -> SEC filings\n")
+    print("Seeding: stocks -> SEC filings\n")
     ingest_stock_data.main()
-    ingest_connected_news.main()
     try:
         ingest_sec_relationships.main()
     except RuntimeError as exc:
@@ -178,7 +159,6 @@ def main(argv: list[str] | None = None) -> int:
                 print("    python -m src.demo --seed\n")
                 print("or step by step:\n")
                 print("    python -m src.ingestion.ingest_stock_data")
-                print("    python -m src.ingestion.ingest_connected_news")
                 print("    python -m src.ingestion.ingest_sec_relationships")
             else:
                 print("Ready. Ask from the CLI:")

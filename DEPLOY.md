@@ -7,11 +7,11 @@ the GitHub repository and connecting it in Streamlit Cloud.
 
 - **`streamlit_app.py`** — root entry point Cloud expects (it runs `src/ui/app.py`).
 - **`data/stock_graph.rl` is committed** (1.8 MB) — a fresh deploy starts with a
-  populated graph instead of an empty one. It is a snapshot: news is as of the
-  commit date, prices are fetched live at query time.
+  populated graph instead of an empty one. It is a snapshot of the
+  relationships and market values; prices are fetched live at query time.
 - **`src/config.py` reads `st.secrets`** when an environment variable is absent,
   so Cloud secrets work without a `.env` file.
-- **`requirements.txt`** is installable as-is (pip installs CPU torch on Cloud).
+- **`requirements.txt`** is small now: no torch, no embedding model.
 
 ## 1. Create the GitHub repository
 
@@ -42,8 +42,8 @@ git config user.email "you@example.com"
 3. **Main file path: `streamlit_app.py`** (not `src/ui/app.py` — both work, but
    the root file is what Cloud defaults to).
 4. Python version: **3.12** (3.11 is also fine).
-5. **Deploy.** First build takes several minutes because torch and
-   sentence-transformers are large.
+5. **Deploy.** The build is quick: the graph is committed and there is no model
+   download.
 
 ## 3. Add secrets
 
@@ -67,8 +67,7 @@ Saving restarts the app. `DEEPSEEK_API_KEY` is the only required secret.
 
 | Risk | What to do |
 | --- | --- |
-| **Memory** — free tier is ~1 GB; torch + MiniLM may OOM the *first* semantic news question ("what does the news say about AI chips?"). | If it happens, either upgrade the instance or drop `sentence-transformers` from `requirements.txt`; keyword answers still work, semantic news search would not. |
 | **Ephemeral disk** — memory nodes (`Query`), index writes and `ensure_schema` live in the container and reset on restart/redeploy. | Expected; it is a demo. Re-ingesting on Cloud is not supported (single-writer lease + long crawls). |
-| **The graph is frozen at commit time** | Re-run ingestion locally and commit the updated `.rl` to refresh news. Prices are unaffected (fetched live). |
+| **The graph is frozen at commit time** | Re-run ingestion locally and commit the updated `.rl` to refresh relationships or snapshots. Prices are unaffected (fetched live). |
 | **Secrets never go in the repo** | `.streamlit/secrets.toml` and `.env` are gitignored. Use the Cloud Secrets editor only. |
 | **Cost** | ~1,600 tokens and ~$0.0005 per question at current DeepSeek pricing. |

@@ -1,7 +1,7 @@
 """Subgraph extraction and pyvis rendering.
 
 The bugs these tests pin down, all seen in the first implementation:
-  * news nodes fell back to the label "Unknown" and collapsed into one node;
+  * nodes without a label fell back to "Unknown" and collapsed into one node;
   * ids were bare strings, so a sector and a company could collide;
   * edge orientation was lost, so a supplier looked like a customer.
 """
@@ -12,7 +12,7 @@ import json
 import re
 
 from src import visualization
-from src.schema import NEWS, PERSON, REL_SUPPLIES_TO, SECTOR, STOCK
+from src.schema import PERSON, REL_SUPPLIES_TO, REL_OWNS, SECTOR, STOCK, SUBSIDIARY
 
 
 def _kinds(subgraph: dict) -> dict[str, int]:
@@ -24,43 +24,32 @@ def _kinds(subgraph: dict) -> dict[str, int]:
 
 
 def test_subgraph_has_the_expected_shape(seeded):
-    subgraph = visualization.fetch_subgraph(seeded, ["NVDA"], news_per_stock=2)
-    # NVDA + AMD (competitor) + TSM (supplier) + MSFT (customer)
+    subgraph = visualization.fetch_subgraph(seeded, ["NVDA"])
+    # NVDA + AMD (competitor) + TSM (supplier) + MSFT (customer), plus the
+    # sector, one person and one subsidiary written by the seed graph.
     assert _kinds(subgraph) == {
         STOCK: 4,
         SECTOR: 1,
         PERSON: 1,
-        NEWS: 2,  # capped from 3 stored headlines
+        SUBSIDIARY: 1,
     }
 
 
 def test_every_node_has_a_namespaced_unique_id(seeded):
-    subgraph = visualization.fetch_subgraph(seeded, ["NVDA", "AMD"], news_per_stock=1)
+    subgraph = visualization.fetch_subgraph(seeded, ["NVDA", "AMD"])
     ids = [node["id"] for node in subgraph["nodes"]]
     assert len(ids) == len(set(ids))
     assert all(":" in node_id for node_id in ids)
 
 
-def test_news_nodes_keep_real_titles(seeded):
-    subgraph = visualization.fetch_subgraph(seeded, ["NVDA"], news_per_stock=3)
-    labels = [node["label"] for node in subgraph["nodes"] if node["id"].startswith(f"{NEWS}:")]
-    assert labels, "expected news nodes"
-    assert all(label and label != "Unknown" for label in labels)
-
-
 def test_supply_edge_keeps_its_direction(seeded):
-    subgraph = visualization.fetch_subgraph(seeded, ["NVDA"], news_per_stock=0)
+    subgraph = visualization.fetch_subgraph(seeded, ["NVDA"])
     supply_edges = [edge for edge in subgraph["edges"] if edge["rel"] == REL_SUPPLIES_TO]
     pairs = {(edge["from"], edge["to"]) for edge in supply_edges}
     assert (f"{STOCK}:TSM", f"{STOCK}:NVDA") in pairs
     assert (f"{STOCK}:NVDA", f"{STOCK}:MSFT") in pairs
     # and never reversed
     assert (f"{STOCK}:NVDA", f"{STOCK}:TSM") not in pairs
-
-
-def test_news_can_be_excluded(seeded):
-    subgraph = visualization.fetch_subgraph(seeded, ["NVDA"], news_per_stock=0)
-    assert _kinds(subgraph).get(NEWS, 0) == 0
 
 
 def test_unknown_ticker_returns_nothing(seeded):
@@ -72,7 +61,7 @@ def test_empty_ticker_list_returns_nothing(seeded):
 
 
 def test_edges_only_reference_existing_nodes(seeded):
-    subgraph = visualization.fetch_subgraph(seeded, ["NVDA"], news_per_stock=2)
+    subgraph = visualization.fetch_subgraph(seeded, ["NVDA"])
     ids = {node["id"] for node in subgraph["nodes"]}
     for edge in subgraph["edges"]:
         assert edge["from"] in ids and edge["to"] in ids
@@ -80,7 +69,7 @@ def test_edges_only_reference_existing_nodes(seeded):
 
 def test_html_embeds_the_network_data(seeded):
     html = visualization.build_pyvis_html(
-        visualization.fetch_subgraph(seeded, ["NVDA"], news_per_stock=1)
+        visualization.fetch_subgraph(seeded, ["NVDA"])
     )
     assert "vis.DataSet" in html
     match = re.search(r"nodes\s*=\s*new vis\.DataSet\((\[.*?\])\);", html, re.S)

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import pytest
 
-from src import config, embeddings, llm
+from src import config, llm
 from src.agent import cypher_executor
 
 
@@ -53,9 +53,7 @@ def test_guard_blocks_writes(cypher: str):
         "MATCH (s:Stock) RETURN s.ticker AS ticker",
         "MATCH (s:Stock) WHERE s.name = 'Create Inc' RETURN s.ticker AS ticker",
         # A property value containing a keyword is data, not a statement.
-        "MATCH (n:NewsArticle) WHERE n.title CONTAINS 'delete' RETURN n.title AS title",
-        "CALL db.index.vector.queryNodes('news_embedding_idx', $k, $query_vector) "
-        "YIELD node, score RETURN node.title AS title, score",
+        "MATCH (s:Stock) WHERE s.name CONTAINS 'delete' RETURN s.name AS name",
     ],
 )
 def test_guard_allows_reads(cypher: str):
@@ -69,14 +67,6 @@ def test_guard_runs_before_any_execution():
     )
     assert "non-read-only" in result["error"]
     assert session.calls == 0
-
-
-def test_build_params_injects_the_question_embedding(monkeypatch):
-    monkeypatch.setattr(embeddings, "embed_text", lambda text: [0.5] * config.EMBEDDING_DIM)
-    cypher = "CALL db.index.vector.queryNodes('idx', $k, $query_vector) YIELD node"
-    params = cypher_executor.build_params(cypher, "semantic question")
-    assert params["query_vector"] == [0.5] * config.EMBEDDING_DIM
-    assert params["k"] == config.NEWS_TOP_K
 
 
 def test_build_params_is_empty_without_placeholders():

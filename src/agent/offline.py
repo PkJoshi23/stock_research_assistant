@@ -11,7 +11,7 @@ and serve them with fixed, reviewed Cypher. No model, no network, no tokens.
 
 Scope, deliberately narrow:
   * only shapes the demo actually asks (suppliers, subsidiaries, board,
-    competitors, news, sector);
+    competitors, sector);
   * only in one company per question;
   * every answer is labelled as degraded so nobody mistakes it for the LLM path.
 
@@ -26,11 +26,9 @@ from typing import Callable
 
 from src import relate_db, safety
 from src.schema import (
-    NEWS,
     PERSON,
     REL_COMPETES_WITH,
     REL_IN_SECTOR,
-    REL_MENTIONED_IN,
     REL_OWNS,
     REL_SUPPLIES_TO,
     REL_WORKS_FOR,
@@ -53,7 +51,6 @@ _PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     ("board", re.compile(r"\b(board(?:\s+of\s+directors)?|directors?)\b", re.I)),
     ("suppliers", re.compile(r"\b(suppl(?:y|ies|ier|iers)|vendors?|depend(?:s|ing)?\s+on)\b", re.I)),
     ("competitors", re.compile(r"\b(compet(?:e|es|ing|itor|itors|ition))\b", re.I)),
-    ("news", re.compile(r"\b(news|headlines?|press|coverage)\b", re.I)),
     ("sector", re.compile(r"\b(sector|industry)\b", re.I)),
 ]
 
@@ -152,29 +149,6 @@ def _competitors(session, ticker: str) -> dict | None:
     }
 
 
-def _news(session, ticker: str) -> dict | None:
-    rows = session.run(
-        f"""
-        MATCH (s:{STOCK} {{ticker: $t}})-[:{REL_MENTIONED_IN}]->(n:{NEWS})
-        RETURN n.title AS title, n.source AS source
-        ORDER BY n.published DESC
-        LIMIT 5
-        """,
-        {"t": ticker},
-    )
-    if not rows:
-        return None
-    lines = [
-        f"- {safety.sanitize(row['title'], max_chars=160)} "
-        f"({safety.sanitize(row['source'] or 'unknown source', max_chars=60)})"
-        for row in rows
-    ]
-    return {
-        "rows": rows,
-        "answer": f"Recent coverage of {ticker}:\n" + "\n".join(lines),
-    }
-
-
 def _sector(session, ticker: str) -> dict | None:
     rows = session.run(
         f"""
@@ -194,7 +168,6 @@ _HANDLERS: dict[str, Callable[..., dict | None]] = {
     "subsidiaries": _subsidiaries,
     "board": _board,
     "competitors": _competitors,
-    "news": _news,
     "sector": _sector,
 }
 

@@ -52,11 +52,9 @@ from evals.questions import EVAL_FIXTURE, QUESTIONS, Question  # noqa: E402
 from src import config, embeddings, llm, relate_db  # noqa: E402
 from src.agent import agent_router, cypher_executor, cypher_generator  # noqa: E402
 from src.schema import (  # noqa: E402
-    NEWS,
     PERSON,
     REL_COMPETES_WITH,
     REL_IN_SECTOR,
-    REL_MENTIONED_IN,
     REL_OWNS,
     REL_SUPPLIES_TO,
     REL_WORKS_FOR,
@@ -81,7 +79,6 @@ REQUIRED_CATEGORIES = {
     "subsidiaries",
     "board",
     "sector",
-    "news",
     "live_price",
     "historical",
     "general",
@@ -89,13 +86,12 @@ REQUIRED_CATEGORIES = {
 
 #: Declared labels / relationship types, used to check that a reference query
 #: only uses schema-sanctioned entities.
-DECLARED_LABELS = {STOCK, SECTOR, NEWS, PERSON, SUBSIDIARY, SUPPLIER}
+DECLARED_LABELS = {STOCK, SECTOR, PERSON, SUBSIDIARY, SUPPLIER}
 DECLARED_RELS = {
     REL_IN_SECTOR,
     REL_COMPETES_WITH,
     REL_SUPPLIES_TO,
     REL_WORKS_FOR,
-    REL_MENTIONED_IN,
     REL_OWNS,
 }
 
@@ -117,8 +113,6 @@ WRITE_CORPUS = (
 #: Read-only statements that contain write keywords as data, not as statements.
 READ_CORPUS = (
     "MATCH (s:Stock) WHERE s.name = 'Create Inc' RETURN s.ticker AS ticker",
-    "MATCH (n:NewsArticle) WHERE n.title CONTAINS 'delete' "
-    "RETURN n.title AS title",
     "MATCH (p:Person)-[:WORKS_FOR]->(s:Stock) "
     "WHERE toLower(p.role) = 'director' RETURN p.name AS director",
 )

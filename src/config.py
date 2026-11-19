@@ -44,37 +44,8 @@ DATA_DIR: Path = PROJECT_ROOT / "data"
 #: hackathon demo trivially portable: copy one file, ship the graph.
 DB_PATH: Path = DATA_DIR / "stock_graph.rl"
 
-#: Hugging Face model cache, pinned inside the project.
-#:
-#: Two reasons this is not left to the default ``~/.cache/huggingface``:
-#:   1. Portability - the model cache travels with the repo checkout, so a
-#:      demo machine downloads it once instead of once per user profile.
-#:   2. Permissions - on Windows sandboxed environments the user-level
-#:      ``.cache`` directory can be readable but not writable, which makes
-#:      ``SentenceTransformer(...)`` fail with WinError 5 on first load.
-#:
-#: It must be set before ``sentence_transformers`` / ``transformers`` /
-#: ``huggingface_hub`` are imported: those libraries snapshot the value into
-#: module-level constants at import time, so a later assignment has no effect.
-HF_HOME: Path = PROJECT_ROOT / ".cache" / "huggingface"
-os.environ.setdefault("HF_HOME", str(HF_HOME))
-
-#: Disable Hugging Face's Xet transfer backend.
-#:
-#: Verified on this machine: with Xet enabled, the 90 MB MiniLM download sits at
-#: 0 bytes indefinitely (the transfer backend never starts, no error surfaces).
-#: With Xet disabled the same download completes in under a minute over plain
-#: HTTP. This is set here rather than in the shell so ingestion scripts work
-#: without any per-session setup.
-os.environ.setdefault("HF_HUB_DISABLE_XET", "1")
-
-#: Cosmetic: Windows has symlinks disabled here, and huggingface_hub warns about
-#: it on every model load. The warning is accurate but noisy; the degraded
-#: cache (real copies instead of links) works fine for a single model.
-os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
-
 #: yfinance keeps its cookie and timezone databases in a user-level cache dir.
-#: Same problem as HF_HOME above: that directory is not writable here, and the
+#: That user-level directory is not writable here, and the
 #: failure surfaces as the confusing ``OperationalError: unable to open
 #: database file`` from the SQLite layer. yfinance exposes no environment
 #: variable for this, so it must be redirected in code - see
@@ -140,56 +111,6 @@ WATCHLIST: list[str] = [
 
 
 # -----------------------------------------------------------------------------
-# News ingestion
-# -----------------------------------------------------------------------------
-#
-# NewsAPI was dropped in favour of two key-less sources: Google News RSS
-# (headline + summary, ideal for embedding) and yfinance (ticker-native, but
-# note that ``Ticker.news`` is broken in yfinance 1.4.1 - see the ingestion
-# module for the working ``yf.Search`` path).
-
-#: Google News RSS search endpoint. ``{query}`` is URL-encoded by the caller.
-NEWS_RSS_TEMPLATE: str = os.getenv(
-    "NEWS_RSS_TEMPLATE",
-    "https://news.google.com/rss/search?q={query}&hl=en-US&gl=US&ceid=US:en",
-)
-
-#: Articles kept per ticker per run. Keeps the demo graph dense and the
-#: embedding pass short (roughly a second per ticker on CPU).
-NEWS_ITEMS_PER_TICKER: int = int(os.getenv("NEWS_ITEMS_PER_TICKER", "6"))
-
-#: How many news rows a semantic search returns by default.
-NEWS_TOP_K: int = int(os.getenv("NEWS_TOP_K", "5"))
-
-#: Network timeout for RSS/HTTP calls, in seconds.
-HTTP_TIMEOUT_S: float = float(os.getenv("HTTP_TIMEOUT_S", "20"))
-
-#: Google News rejects the default python-requests agent from some networks.
-NEWS_USER_AGENT: str = os.getenv(
-    "NEWS_USER_AGENT",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-    "(KHTML, like Gecko) Chrome/120.0 Safari/537.36",
-)
-
-
-# -----------------------------------------------------------------------------
-# Embeddings
-# -----------------------------------------------------------------------------
-
-#: Sentence-transformers model. 384 dimensions, fast on CPU, good enough for
-#: short news snippets. If this is changed, every stored vector must be
-#: re-generated and the vector index rebuilt - embeddings from different
-#: models are not comparable and will silently rank garbage.
-EMBEDDING_MODEL_NAME: str = os.getenv(
-    "EMBEDDING_MODEL_NAME", "sentence-transformers/all-MiniLM-L6-v2"
-)
-
-#: Dimensionality of ``EMBEDDING_MODEL_NAME``. Kept explicit so the vector
-#: index can be created with the right size and a model swap fails loudly.
-EMBEDDING_DIM: int = int(os.getenv("EMBEDDING_DIM", "384"))
-
-
-# -----------------------------------------------------------------------------
 # Agent behaviour
 # -----------------------------------------------------------------------------
 
@@ -203,6 +124,15 @@ DEFAULT_RESULT_LIMIT: int = int(os.getenv("DEFAULT_RESULT_LIMIT", "50"))
 
 #: Set this to a truthy string to print every prompt and generated Cypher.
 DEBUG_PROMPTS: bool = os.getenv("DEBUG_PROMPTS", "").lower() in {"1", "true", "yes"}
+
+
+# -----------------------------------------------------------------------------
+# HTTP
+# -----------------------------------------------------------------------------
+
+#: Timeout for every outbound request (SEC filings, registrant map, quotes).
+#: EDGAR serves 1-20 MB documents, so this is generous but bounded.
+HTTP_TIMEOUT_S: float = float(os.getenv("HTTP_TIMEOUT_S", "20"))
 
 
 # -----------------------------------------------------------------------------

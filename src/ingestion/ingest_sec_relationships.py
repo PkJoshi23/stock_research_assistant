@@ -390,7 +390,7 @@ def extract_structure(text: str, ticker: str) -> dict[str, list[str]]:
 
 
 # ``resolve_tracked_stock`` is imported above from ``src.entities`` and
-# re-exported here on purpose: the news loader needs the same alias matcher,
+# re-exported here on purpose: other loaders need the same alias matcher,
 # and one implementation is the only way the two paths cannot disagree. The
 # original definition lived in this module; it is imported (not redefined) so
 # ``sec.resolve_tracked_stock`` keeps working for existing callers and tests.
@@ -537,7 +537,7 @@ def write_supplier(conn, ticker: str, name: str) -> str:
 
 
 def reset_sec_nodes(conn) -> None:
-    """Delete SEC-derived nodes. Stocks, news and curated edges are untouched."""
+    """Delete SEC-derived nodes. Stocks and curated edges are untouched."""
     relate_db.run(conn, f"MATCH (n:{SUBSIDIARY}) DETACH DELETE n")
     relate_db.run(conn, f"MATCH (n:{SUPPLIER}) DETACH DELETE n")
 

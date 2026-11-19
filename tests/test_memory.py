@@ -64,7 +64,7 @@ def test_recent_returns_newest_first(seeded):
 def test_interest_profile_counts_questions_per_company(seeded):
     memory.remember(seeded, "Who supplies Nvidia?", "graph_query", ["NVDA"])
     memory.remember(seeded, "Nvidia competitors?", "graph_query", ["NVDA"])
-    memory.remember(seeded, "AMD news?", "graph_query", ["AMD"])
+    memory.remember(seeded, "AMD suppliers?", "graph_query", ["AMD"])
 
     profile = memory.interest_profile(seeded, limit=3)
     assert profile[0]["ticker"] == "NVDA"

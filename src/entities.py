@@ -5,7 +5,7 @@ Two ingestion paths need the same answer to "which tracked company is this?":
   * the SEC loader resolves a supplier named in a 10-K ("TSMC") onto the
     existing ``Stock:TSM`` node instead of inventing a parallel entity that the
     agent would never join to;
-  * the news loader scans an article's title + summary for *every* watchlist
+  * the SEC loader scans filing text for every watchlist
     company it names, so one story about an Nvidia/TSMC supply deal links to
     both stocks instead of only the one that was searched for.
 
@@ -22,8 +22,7 @@ Two match policies, on purpose, because the inputs differ
   (a headline writes "TSMC", not the legal name), but a substring hit like
   "AMD" inside another word must never become an edge.
 
-Edge policy for the news graph lives with its caller
-(``src/ingestion/ingest_connected_news.py``). This module only reads the graph;
+Edge policy lives with each caller. This module only reads the graph;
 it never writes to it.
 """
 
@@ -41,11 +40,11 @@ from src.schema import STOCK
 #: One-character tickers exist (Ford is ``F``) but a bare ``F`` cannot be told
 #: apart from a stray capital in prose, so single characters are not matched as
 #: tickers. Ford is still found through its name/alias ("Ford"), which is how
-#: news copy writes it anyway.
+#: other loaders write it anyway.
 MIN_ACRONYM_LENGTH = 2
 
 #: Shortest word-style surface form that is safe to match. Two-letter words are
-#: mostly noise in a news context; every alias in the curated watchlist is
+#: mostly noise in free text; every alias in the curated watchlist is
 #: three characters or longer, so this only rejects malformed data.
 MIN_WORD_LENGTH = 3
 
@@ -63,7 +62,7 @@ def load_companies(target) -> list[dict]:
     reuse this loader, so it grew its own matching instead.
 
     Sorted by ticker rather than in Cypher: the scan order decides the order of
-    ``MENTIONED_IN`` edges written by the news loader, and a deterministic order
+    edges written by the SEC loader, and a deterministic order
     is what makes re-running ingestion reproducible.
     """
     rows = relate_db.query(
@@ -278,7 +277,7 @@ def resolve_tracked_stock(target, name: str) -> str | None:
 
 
 # -----------------------------------------------------------------------------
-# Scanning free text (news)
+# Scanning free text (filings)
 # -----------------------------------------------------------------------------
 
 
@@ -326,7 +325,7 @@ def find_mentioned_tickers(
 
     A thin projection of :func:`resolve` for callers that only need tickers.
     ``exclude`` holds tickers whose link is written elsewhere with a stronger
-    provenance (the news loader excludes the ticker it searched for, so
+    provenance (the loader excludes the ticker it searched for, so
     ``via='search'`` is not demoted to ``via='mention'``).
     """
     return [

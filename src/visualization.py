@@ -12,9 +12,9 @@ Two deliberate choices:
   ...) instead of whole nodes. Relate hands back native `Node` objects for
   `RETURN s`, which do not survive a trip through JSON or Streamlit, and the
   previous implementation worked around that by falling back to the string
-  "Unknown" - which collapsed every news article into one node.
+  "Unknown" - which collapsed every entity into one node.
 * **Namespaced node ids.** Ids are ``Stock:NVDA`` / ``Sector:Technology`` /
-  ``News:<url>``, so a company, a sector and a headline can never collide.
+  ``Supplier:<name>``, so a company, a sector and a vendor can never collide.
 """
 
 from __future__ import annotations
@@ -23,11 +23,9 @@ import json
 from typing import Any
 
 from .schema import (
-    NEWS,
     PERSON,
     REL_COMPETES_WITH,
     REL_IN_SECTOR,
-    REL_MENTIONED_IN,
     REL_OWNS,
     REL_SUPPLIES_TO,
     REL_WORKS_FOR,
@@ -48,7 +46,6 @@ NODE_STYLES: dict[str, dict[str, Any]] = {
     STOCK: {"color": "#3498db", "size": 26, "shape": "dot"},
     SECTOR: {"color": "#2ecc71", "size": 18, "shape": "database"},
     PERSON: {"color": "#f39c12", "size": 16, "shape": "triangle"},
-    NEWS: {"color": "#9b59b6", "size": 9, "shape": "square"},
     # Filing-derived nodes are drawn smaller and darker: they are context, not
     # the subject of the answer.
     SUBSIDIARY: {"color": "#16a085", "size": 12, "shape": "box"},
@@ -61,7 +58,6 @@ EDGE_STYLES: dict[str, dict[str, Any]] = {
     REL_COMPETES_WITH: {"color": "#e74c3c", "dashes": [2, 4], "label": "competes"},
     REL_SUPPLIES_TO: {"color": "#f1c40f", "dashes": False, "label": "supplies"},
     REL_WORKS_FOR: {"color": "#f39c12", "dashes": False, "label": "works for"},
-    REL_MENTIONED_IN: {"color": "#8e44ad", "dashes": [1, 3], "label": "news"},
     REL_OWNS: {"color": "#16a085", "dashes": [4, 4], "label": "owns"},
 }
 
@@ -89,13 +85,10 @@ def _fmt_money(value: float | None) -> str:
 def fetch_subgraph(
     session,
     tickers: list[str],
-    *,
-    news_per_stock: int = 3,
-    include_news: bool = True,
 ) -> dict[str, list[dict]]:
     """Collect the neighbourhood of ``tickers`` as plain nodes and edges.
 
-    Depth is one hop, by design: two hops across a graph with 60+ news nodes
+    Depth is one hop, by design: two hops across a relationship graph
     produces a hairball that says nothing. The one-hop view answers "what is
     this company connected to?" which is the question the UI is making.
     """
@@ -257,36 +250,6 @@ def fetch_subgraph(
             group=SUPPLIER,
         )
         add_edge(source, node_id(STOCK, row["ticker"]), REL_SUPPLIES_TO)
-
-    # -- news (bounded per stock) ---------------------------------------
-    if include_news and news_per_stock > 0:
-        rows = session.run(
-            f"""
-            MATCH (s:{STOCK})-[:{REL_MENTIONED_IN}]->(n:{NEWS})
-            WHERE s.ticker IN $tickers
-            RETURN s.ticker AS ticker, n.url AS url, n.title AS title,
-                   n.source AS source, n.published AS published
-            ORDER BY n.published DESC
-            """,
-            {"tickers": tickers},
-        )
-        # Cap per stock: 60 headlines would bury every other relationship.
-        per_stock: dict[str, int] = {}
-        for row in rows:
-            ticker = row["ticker"]
-            if per_stock.get(ticker, 0) >= news_per_stock:
-                continue
-            per_stock[ticker] = per_stock.get(ticker, 0) + 1
-            title = row["title"] or "Untitled"
-            short = title if len(title) <= 34 else title[:32] + "..."
-            source = add_node(
-                NEWS,
-                row["url"],
-                label=short,
-                title=f"<b>{title}</b><br>{row['source'] or ''}<br>{row['published'] or ''}",
-                group=NEWS,
-            )
-            add_edge(node_id(STOCK, ticker), source, REL_MENTIONED_IN)
 
     return {"nodes": list(nodes.values()), "edges": list(edges.values())}
 

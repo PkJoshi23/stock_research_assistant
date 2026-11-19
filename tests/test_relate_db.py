@@ -13,7 +13,7 @@ import threading
 import pytest
 
 from src import relate_db
-from src.schema import STOCK, VECTOR_INDEX_NAME
+from src.schema import STOCK
 
 
 def test_run_returns_plain_dict_rows(conn):
@@ -23,16 +23,14 @@ def test_run_returns_plain_dict_rows(conn):
     assert type(rows[0]) is dict
 
 
-def test_ensure_schema_creates_lookup_and_vector_indexes(conn):
-    names = relate_db.index_names(conn)
-    assert "stock_ticker_idx" in names
-    assert VECTOR_INDEX_NAME in names
+def test_ensure_schema_creates_the_ticker_lookup_index(conn):
+    assert "stock_ticker_idx" in relate_db.index_names(conn)
 
 
 def test_ensure_schema_is_idempotent(conn):
     relate_db.ensure_schema(conn)
     relate_db.ensure_schema(conn)
-    assert relate_db.index_names(conn).count(VECTOR_INDEX_NAME) == 1
+    assert relate_db.index_names(conn).count("stock_ticker_idx") == 1
 
 
 def test_counts_groups_by_label(conn):
@@ -45,7 +43,7 @@ def test_wipe_removes_nodes_but_keeps_indexes(conn):
     relate_db.run(conn, "CREATE (:Stock {ticker: 'A'})")
     relate_db.wipe(conn)
     assert relate_db.counts(conn) == {}
-    assert VECTOR_INDEX_NAME in relate_db.index_names(conn)
+    assert "stock_ticker_idx" in relate_db.index_names(conn)
 
 
 def test_session_works_from_a_different_thread(seeded):

@@ -59,7 +59,7 @@ Intent rules:
   This database stores NO price history, so these must be flagged, never
   answered from the graph.
 - "graph_query": relationships, sectors, competitors, suppliers, executives,
-  news, or any "how is X connected to Y" question.
+  or any "how is X connected to Y" question.
 - "general_knowledge": unrelated to the tracked companies or the graph
   (e.g. "what is a P/E ratio?", "who won the world cup?").
 

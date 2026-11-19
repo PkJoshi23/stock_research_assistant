@@ -1,7 +1,7 @@
 """Handling text that came from the internet.
 
-Three inputs in this project are attacker-controlled in principle: news
-headlines/summaries (Google News, Yahoo), SEC filing text, and anything a
+One input in this project is attacker-controlled in principle: SEC filing
+text. Anything a
 future source adds. They reach two prompts:
 
   * the summariser, as rows of retrieved data;

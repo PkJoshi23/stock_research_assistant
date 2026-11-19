@@ -2,7 +2,7 @@
 
 An answer that cannot be audited is a guess with better grammar. This module
 turns what the agent already holds into a short evidence list: how many rows came
-back, which of them were headlines (with URLs), whether SEC filings contributed
+back, whether SEC filings contributed
 relationships, and when the snapshot was last refreshed.
 
 It fetches nothing. Everything here is read from the graph the answer was built
@@ -15,8 +15,6 @@ from src import relate_db
 from src.schema import PERSON, REL_SUPPLIES_TO, REL_WORKS_FOR, STOCK
 
 #: Cap on headline citations - a long list stops being readable.
-_MAX_HEADLINES = 3
-
 
 def _officer_edges(session, ticker: str) -> int:
     rows = session.run(
@@ -62,7 +60,7 @@ def collect(
     """Build the evidence list for one answer.
 
     Ordering is deliberate: the rows themselves first (what the answer is made
-    of), then filings (the most authoritative relationships), then headlines
+    of), then filings (the most authoritative relationships)
     (the most perishable).
     """
     sources: list[dict] = []
@@ -97,20 +95,6 @@ def collect(
         snapshot = _snapshot_timestamp(session, ticker)
         if snapshot:
             sources.append({"type": "snapshot", "label": f"market snapshot as of {snapshot}"})
-
-    # Headlines, when the query returned them.
-    headlines = [
-        row for row in rows if isinstance(row, dict) and row.get("url") and row.get("title")
-    ][:_MAX_HEADLINES]
-    for row in headlines:
-        sources.append(
-            {
-                "type": "news",
-                "label": str(row["title"]),
-                "url": str(row["url"]),
-                "detail": str(row.get("source") or ""),
-            }
-        )
 
     return sources
 

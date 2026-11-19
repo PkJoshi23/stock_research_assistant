@@ -107,7 +107,6 @@ with st.sidebar:
         "What is NVDA trading at right now?",
         "Who supplies Nvidia?",
         "How has Tesla's stock performed since 2020?",
-        "What does the news say about AI chip demand?",
     ):
         st.caption(f"· {sample}")
 
@@ -127,7 +126,7 @@ if "messages" not in st.session_state:
             "role": "assistant",
             "content": (
                 "Ask me about **relationships**: competitors, suppliers, sectors, "
-                "executives, or news. I can also pull a live price.\n\n"
+                "suppliers, subsidiaries or executives. I can also pull a live price.\n\n"
                 "I don't do historical charts - I'm built on connected context."
             ),
         }
@@ -140,7 +139,7 @@ for message in st.session_state.messages:
 # -----------------------------------------------------------------------------
 # Chat turn
 # -----------------------------------------------------------------------------
-if prompt := st.chat_input("Ask about a company, its competitors, suppliers or news..."):
+if prompt := st.chat_input("Ask about a company, its competitors, suppliers or board..."):
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
         st.markdown(prompt)
@@ -183,7 +182,7 @@ if prompt := st.chat_input("Ask about a company, its competitors, suppliers or n
                 st.markdown("### 🕸️ Connected Context Map")
                 st.caption(
                     "Drag to rearrange · scroll to zoom · hover for details.  "
-                    "🔵 stock · 🟢 sector · 🟠 executive · 🟣 news"
+                    "🔵 stock · 🟢 sector · 🟠 executive · 🟣 subsidiary"
                 )
                 # st.iframe auto-detects HTML content; it replaces the
                 # deprecated st.components.v1.html in Streamlit 1.58.

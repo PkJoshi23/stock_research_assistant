@@ -59,7 +59,7 @@ HISTORICAL_MESSAGE = (
     "What I can do instead:\n"
     "- pull the **current** live price for any ticker\n"
     "- show who a company **competes with**, **supplies**, or is **supplied by**\n"
-    "- find **news** about a company, or search news by meaning across the graph"
+    "- show its **subsidiaries** and **board of directors** from SEC filings"
 )
 
 _SUMMARY_SYSTEM = """You are a financial research analyst answering from a graph
@@ -286,7 +286,7 @@ class StockResearchAgent:
         """A price question about an unknown ticker still has a real answer.
 
         yfinance does not need the graph, so a quote costs one request and no
-        tokens. Relationships and news are honestly out of scope until the
+        tokens. Its relationships are honestly out of scope until the
         company is fetched from SEC.
         """
         ticker = gate.untracked[0][0]
@@ -374,7 +374,7 @@ class StockResearchAgent:
                 "answer": (
                     "The graph has no data matching that. I track a small set of "
                     "companies and their competitors, suppliers, executives and "
-                    "news - try asking about one of those relationships."
+                    "relationships - try asking about one of those."
                 ),
             }
 
@@ -454,7 +454,7 @@ class StockResearchAgent:
     def _resolve_ticker(self, question: str, tickers: list[str]) -> str | None:
         """Pick the ticker the question is about.
 
-        Matching is delegated to :mod:`src.entities` so the agent, the news
+        Matching is delegated to :mod:`src.entities` so the agent and the
         loader and the SEC loader share one set of rules. This method used to
         carry a private third implementation plus its own graph read.
         """
@@ -518,7 +518,7 @@ class StockResearchAgent:
         if not tickers:
             return ""
         subgraph = visualization.fetch_subgraph(
-            self.db, tickers, news_per_stock=2
+            self.db, tickers
         )
         if not subgraph["nodes"]:
             return ""

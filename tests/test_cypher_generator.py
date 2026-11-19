@@ -16,9 +16,9 @@ from src.agent import cypher_generator as gen
 
 def test_examples_are_gated_by_the_selected_keys():
     """An example must never teach a label the mini-schema omits."""
-    news_only = gen._render_examples(["news_by_stock"])
-    assert "SUPPLIES_TO" not in news_only
-    assert "OWNS" not in news_only
+    unrelated_only = gen._render_examples(["competitors"])
+    assert "SUPPLIES_TO" not in unrelated_only
+    assert "OWNS" not in unrelated_only
 
     supplier = gen._render_examples(["corporate_structure"])
     assert "SUPPLIES_TO" in supplier
@@ -36,7 +36,7 @@ def test_supplier_example_uses_the_unlabeled_polymorphic_pattern():
 
 def test_examples_are_capped():
     rendered = gen._render_examples(
-        ["corporate_structure", "executives", "competitors", "news_by_stock"]
+        ["corporate_structure", "executives", "competitors", "supply_chain"]
     )
     assert rendered.count("Cypher:") == gen._MAX_EXAMPLES
 

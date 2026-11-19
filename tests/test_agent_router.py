@@ -58,7 +58,7 @@ def test_live_price_questions_are_classified_as_live(question: str):
     [
         "Who supplies Nvidia?",
         "Which companies compete with Microsoft?",
-        "What recent news mentions Tesla?",
+        "Which companies does Tesla compete with?",
     ],
 )
 def test_relationship_questions_default_to_graph_queries(question: str):

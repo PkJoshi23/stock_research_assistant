@@ -114,25 +114,10 @@ def seed_demo_graph(run) -> None:
         "MERGE (p:Person {name: 'Jensen Huang'}) SET p.role = 'CEO' "
         "WITH p MATCH (s:Stock {ticker: 'NVDA'}) MERGE (p)-[:WORKS_FOR]->(s)"
     )
-
-    # Three NVDA headlines (so the per-stock cap can be exercised) and one AMD.
-    news = [
-        ("https://ex.com/a", "Nvidia beats earnings", "NVDA", "Reuters"),
-        ("https://ex.com/b", "Nvidia supply chain tightens", "NVDA", "Yahoo Finance"),
-        ("https://ex.com/c", "Nvidia shares fall", "NVDA", "Trefis"),
-        ("https://ex.com/d", "AMD launches new chip", "AMD", "Reuters"),
-    ]
-    for url, title, ticker, source in news:
-        run(
-            "MERGE (n:NewsArticle {url: $url}) SET n.title = $title, n.source = $source, "
-            "    n.summary = 'stub', n.embedding = $embedding",
-            {"url": url, "title": title, "source": source, "embedding": [0.01] * config.EMBEDDING_DIM},
-        )
-        run(
-            "MATCH (s:Stock {ticker: $ticker}), (n:NewsArticle {url: $url}) "
-            "MERGE (s)-[:MENTIONED_IN]->(n)",
-            {"ticker": ticker, "url": url},
-        )
+    run(
+        "MERGE (sub:Subsidiary {name: 'NVDA Sub One'}) "
+        "WITH sub MATCH (s:Stock {ticker: 'NVDA'}) MERGE (s)-[:OWNS]->(sub)"
+    )
 
 
 @pytest.fixture

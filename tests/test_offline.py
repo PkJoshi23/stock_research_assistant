@@ -56,7 +56,6 @@ def _resolve_nvda(_question: str) -> str:
         ("What subsidiaries does Nvidia own?", "subsidiaries"),
         ("Who is on the board of directors?", "board"),
         ("Which companies compete with Nvidia?", "competitors"),
-        ("Any recent news about Nvidia?", "news"),
         ("What sector is Nvidia in?", "sector"),
         ("Tell me about the weather in Tokyo", None),
     ],
@@ -82,14 +81,6 @@ def test_competitors_answer(seeded):
 def test_sector_answer(seeded):
     result = offline.answer_without_llm(seeded, "What sector is Nvidia in?", _resolve_nvda)
     assert "Technology" in result["answer"]
-
-
-def test_news_answer_is_bounded(seeded):
-    result = offline.answer_without_llm(
-        seeded, "Any recent news about Nvidia?", _resolve_nvda
-    )
-    assert len(result["rows"]) <= 5
-    assert "Nvidia" in result["answer"] or "NVDA" in result["answer"]
 
 
 def test_subsidiaries_answer_when_present(seeded):

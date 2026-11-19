@@ -21,7 +21,6 @@ from __future__ import annotations
 
 STOCK = "Stock"
 SECTOR = "Sector"
-NEWS = "NewsArticle"
 PERSON = "Person"
 SUBSIDIARY = "Subsidiary"
 SUPPLIER = "Supplier"
@@ -35,7 +34,6 @@ REL_IN_SECTOR = "IN_SECTOR"        # (:Stock)-[:IN_SECTOR]->(:Sector)
 REL_COMPETES_WITH = "COMPETES_WITH"  # (:Stock)-[:COMPETES_WITH]->(:Stock)
 REL_SUPPLIES_TO = "SUPPLIES_TO"    # (:Stock)-[:SUPPLIES_TO]->(:Stock)  supplier -> customer
 REL_WORKS_FOR = "WORKS_FOR"        # (:Person)-[:WORKS_FOR]->(:Stock)
-REL_MENTIONED_IN = "MENTIONED_IN"  # (:Stock)-[:MENTIONED_IN]->(:NewsArticle)
 
 # From SEC filings (see src/ingestion/ingest_sec_relationships.py)
 REL_OWNS = "OWNS"  # (:Stock)-[:OWNS]->(:Subsidiary)
@@ -50,16 +48,6 @@ REL_ABOUT = "ABOUT"  # (:Query)-[:ABOUT]->(:Stock)
 # dropped one branch - answering "who supplies X?" with half the answer.
 
 # -----------------------------------------------------------------------------
-# Vector search
-# -----------------------------------------------------------------------------
-
-#: Native vector index over news embeddings. Verified working on Relate 1.0.2:
-#: the procedure namespace is ``db.index.*``; the Neo4j 4 ``db.idx.*`` form
-#: does not exist.
-VECTOR_INDEX_NAME = "news_embedding_idx"
-VECTOR_PROPERTY = "embedding"
-
-# -----------------------------------------------------------------------------
 # The schema dictionary handed to the routing/extraction step (Step 2)
 # -----------------------------------------------------------------------------
 #
@@ -67,9 +55,8 @@ VECTOR_PROPERTY = "embedding"
 # is what keeps the generation prompt grounded: the model never sees the whole
 # graph, so it cannot invent a label it was never shown.
 #
-# Careful: the $query_vector and $k placeholders in ``news_semantic_search`` are
-# supplied by the executor (the question is embedded in Python), so the model
-# must emit them literally and never substitute values of its own.
+# The graph is research context only: companies, their relationships, and the
+# current snapshot. There is no news and no price history.
 
 SCHEMA_DICTIONARY: dict[str, str] = {
     "stock_snapshot": f"""
@@ -173,40 +160,6 @@ SCHEMA_DICTIONARY: dict[str, str] = {
           MATCH (q:{QUERY})-[:{REL_ABOUT}]->(s:{STOCK})
           RETURN s.ticker AS ticker, sum(q.count) AS questions
           ORDER BY questions DESC
-    """,
-    "news_by_stock": f"""
-        Node: {NEWS}
-        Properties:
-          url       (string, unique)
-          title     (string)
-          source    (string)  - e.g. "Reuters"
-          summary   (string)
-          published (datetime)
-          embedding (list of 384 floats) - semantic vector, do not RETURN it
-        Relationship: (:{STOCK})-[:{REL_MENTIONED_IN}]->(:{NEWS})
-        The edge carries `via`: 'search' when the article was fetched for that
-        company, 'mention' when it was found by scanning the text. Both are real
-        coverage, so do not filter them out; use `via` only if the question is
-        about how an article was discovered.
-        Use for "what happened to X" / "recent news about X". Order by
-        n.published DESC and LIMIT the results.
-    """,
-    "news_semantic_search": f"""
-        Semantic (vector) news search. This is the only supported way to search
-        news by meaning rather than by company.
-        The query vector is injected as the parameter $query_vector and the
-        result count as $k - emit those placeholders exactly, never literal
-        numbers or arrays.
-        Exact template to use:
-
-        CALL db.index.vector.queryNodes('{VECTOR_INDEX_NAME}', $k, $query_vector)
-        YIELD node, score
-        RETURN node.title AS title, node.source AS source,
-               node.published AS published, score
-        ORDER BY score DESC
-
-        Use this key for topic/sentiment questions such as "what is the market
-        saying about AI chips" or "news that sounds like supply shortages".
     """,
 }
 

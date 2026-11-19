@@ -22,8 +22,6 @@ def test_expected_keys_are_present():
         "executives",
         "corporate_structure",
         "conversation_memory",
-        "news_by_stock",
-        "news_semantic_search",
     }
 
 
@@ -48,7 +46,7 @@ def test_descriptions_reference_generated_relationship_constants():
         schema.REL_COMPETES_WITH,
         schema.REL_SUPPLIES_TO,
         schema.REL_WORKS_FOR,
-        schema.REL_MENTIONED_IN,
+        schema.REL_OWNS,
     ):
         assert rel in joined
 
@@ -62,15 +60,6 @@ def test_snapshot_description_lists_every_property_the_loader_writes():
         assert prop in description
 
 
-def test_vector_search_description_uses_the_injected_placeholders():
-    """The executor fills $query_vector/$k; a literal would break the CALL."""
-    description = SCHEMA_DICTIONARY["news_semantic_search"]
-    assert "$query_vector" in description
-    assert "$k" in description
-    assert schema.VECTOR_INDEX_NAME in description
-    assert "db.index.vector.queryNodes" in description
-
-
 def test_mini_schema_is_empty_for_no_keys():
     assert mini_schema([]) == ""
 
@@ -79,7 +68,7 @@ def test_mini_schema_renders_only_requested_keys():
     rendered = mini_schema(["stock_snapshot"])
     assert "ticker" in rendered
     # A key that was not selected must not leak into the prompt.
-    assert "MENTIONED_IN" not in rendered
+    assert "SUPPLIES_TO" not in rendered
 
 
 def test_mini_schema_drops_unknown_keys_instead_of_raising():
@@ -96,7 +85,6 @@ def test_node_styles_cover_every_label():
         schema.STOCK,
         schema.SECTOR,
         schema.PERSON,
-        schema.NEWS,
         schema.SUBSIDIARY,
         schema.SUPPLIER,
     ):
@@ -111,7 +99,6 @@ def test_edge_styles_cover_every_relationship():
         schema.REL_COMPETES_WITH,
         schema.REL_SUPPLIES_TO,
         schema.REL_WORKS_FOR,
-        schema.REL_MENTIONED_IN,
         schema.REL_OWNS,
     ):
         assert rel in EDGE_STYLES

@@ -32,7 +32,6 @@ second. It stays comfortably inside the 20-second offline budget.
 | subsidiaries | 2 | "What subsidiaries does Nvidia own?" |
 | board | 3 | "Who is on Nvidia's board of directors?", "Who is the CEO of Nvidia?" |
 | sector | 3 | "What sector is Nvidia in?", "Which stocks are in the Technology sector?" |
-| news | 3 | "What recent news mentions Nvidia?" plus one semantic-search question |
 | live_price | 3 | "What is NVDA trading at right now?" |
 | historical | 5 | "How has Tesla's stock performed since 2020?" (must be DEFERRED) |
 | general | 3 | "What is a P/E ratio?" (unrelated to the graph) |
@@ -122,7 +121,7 @@ is marked FAIL, because a fallback coincidence is not a model result.
   does not score generated Cypher.
 - **It does not prove production data quality.** The eval graph is a synthetic
   fixture (demo seed plus a handful of nodes), not the ingested graph. It does
-  not measure coverage, freshness or the correctness of real SEC/news data.
+  not measure coverage, freshness or the correctness of real SEC data.
 - **It does not test live quotes.** The live-price branch calls yfinance; offline
   only the routing decision and the "skip the graph" contract are checked. No
   quote is fetched.

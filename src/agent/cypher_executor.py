@@ -23,7 +23,7 @@ if __package__ in (None, ""):
 
 import relate
 
-from src import config, embeddings, llm
+from src import config, llm
 from src.schema import mini_schema
 
 #: Anything that can mutate the store. Checked against the query with string
@@ -68,15 +68,11 @@ def guard_read_only(cypher: str) -> str | None:
 def build_params(cypher: str, user_question: str) -> dict:
     """Supply the placeholders the generator is allowed to use.
 
-    ``$query_vector`` is the only way a question reaches a vector search: the
-    embedding has to be computed in Python and passed as a parameter, because
-    Cypher cannot call the model.
+    There are none: the research graph takes no vector parameters. The function
+    stays because the executor's signature is part of the pipeline contract, and
+    a future parameterised query belongs here rather than inline.
     """
-    params: dict = {}
-    if "$query_vector" in cypher:
-        params["query_vector"] = embeddings.embed_text(user_question)
-        params["k"] = config.NEWS_TOP_K
-    return params
+    return {}
 
 
 def execute_cypher_with_retry(

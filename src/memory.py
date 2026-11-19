@@ -7,7 +7,7 @@ companies a question was about get ``ABOUT`` edges.
 
 What that buys:
 
-  * "you've asked about NVDA three times" - personalisation without a vector
+  * "you've asked about NVDA three times" - personalisation without a model
     store or a session ledger;
   * a sidebar of recent questions that survives a Streamlit restart;
   * a queryable trail: *which companies has this user actually cared about?*

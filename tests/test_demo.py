@@ -46,7 +46,7 @@ def test_json_output_is_machine_readable(db_path, seed_graph, capsys):
 
     assert report["nodes"] > 0
     assert report["counts"]["Stock"] == 4
-    assert "news_embedding_idx" in report["indexes"]
+    assert "stock_ticker_idx" in report["indexes"]
 
 
 def test_missing_api_key_is_warned_but_not_fatal(db_path, seed_graph, monkeypatch, capsys):

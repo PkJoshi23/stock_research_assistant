@@ -5,9 +5,7 @@ model may reference. If a label or relationship is not in the prompt, the model
 cannot invent it - which is the whole reason the schema is a dictionary of small,
 selectable blocks rather than one big prompt.
 
-The only placeholder the model is allowed to emit is ``$query_vector`` (plus
-``$k``) for vector search; the executor fills those in, because embedding the
-question requires Python, not Cypher.
+The model emits no parameters: the research graph needs none.
 """
 
 from __future__ import annotations
@@ -93,7 +91,7 @@ listed here:
 
 Hard rules:
 1. READ-ONLY. Only MATCH / OPTIONAL MATCH / WITH / WHERE / RETURN / ORDER BY /
-   LIMIT / CALL db.index.vector.queryNodes. Never CREATE, MERGE, SET, DELETE,
+   LIMIT. Never CREATE, MERGE, SET, DELETE,
    REMOVE, DROP or LOAD CSV.
 2. Return explicit, aliased columns (e.g. `RETURN s.ticker AS ticker,
    s.name AS name`), never whole nodes - the result is rendered as a table.
@@ -107,8 +105,6 @@ Hard rules:
 5. Competitor edges are stored in one direction only - match them undirected.
 6. This database has NO price history. If asked about past prices or trends,
    return nothing useful rather than inventing a pattern.
-7. For semantic news search, copy the vector-search template from the schema
-   verbatim and use the $query_vector and $k placeholders exactly.
 
 {supplier_rule}
 
