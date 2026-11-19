@@ -25,7 +25,7 @@ if __package__ in (None, ""):
 import pandas as pd
 import streamlit as st
 
-from src import __version__ as src_version, config, llm, memory, ticker_directory
+from src import __version__ as src_version, config, llm, memory
 from src.agent.master_agent import HISTORICAL_MESSAGE, StockResearchAgent
 
 st.set_page_config(page_title="Relate · Stock Research Agent", page_icon="📈", layout="wide")
@@ -111,25 +111,8 @@ with st.sidebar:
     ):
         st.caption(f"· {sample}")
 
-    # Which build is actually serving this page. Streamlit Cloud rebuilds are
-    # asynchronous, so "I pushed but the app is unchanged" is otherwise
-    # indistinguishable from a code bug.
-    st.caption(f"build v{src_version}")
-
-    # The coverage gate depends on SEC's ticker registry, which is normally a
-    # downloaded cache. On Cloud that cache does not exist, so its absence is
-    # shown here rather than degrading the gate silently.
-    try:
-        entries = ticker_directory.load_directory()
-        st.caption(
-            f"registry: {len(entries):,} tickers ({ticker_directory.last_source})"
-        )
-    except Exception as exc:  # noqa: BLE001 - diagnostics must not break the app
-        st.caption(f"registry unavailable: {type(exc).__name__}: {str(exc)[:80]}")
-
+    # Only shown while it blocks a feature the user can see (the SEC fetch).
     if not config.SEC_CONTACT_EMAIL:
-        # SEC Archives 403s without a contact address, so the fetch button can
-        # never work. Say so before the user clicks it.
         st.caption(
             "⚠️ SEC_CONTACT_EMAIL not set - the SEC fetch is disabled. Add it in "
             "Settings → Secrets."
@@ -221,8 +204,6 @@ if prompt := st.chat_input("Ask about a company, its competitors, suppliers or n
         # Telemetry: the four steps, visible.
         with st.expander("🔍 Pipeline telemetry", expanded=False):
             st.markdown(f"**Intent** `{result['intent']}`")
-            if result.get("gate"):
-                st.markdown(f"**Gate** `{result['gate']}`")
             if result["schema_keys"]:
                 st.markdown(f"**Schema keys** `{', '.join(result['schema_keys'])}`")
             if result["tickers"]:
@@ -245,6 +226,9 @@ if prompt := st.chat_input("Ask about a company, its competitors, suppliers or n
                     f"{usage.get('total_tokens', 0)} tokens · "
                     f"{usage.get('wall_ms', 0)} ms wall"
                 )
+            # Which build is serving this page. Buried here (collapsed expander)
+            # so it is available for deploy checks without cluttering the app.
+            st.caption(f"build v{src_version}")
 
     st.session_state.messages.append({"role": "assistant", "content": result["answer"]})
 
@@ -279,7 +263,7 @@ if fetch_ticker:
     else:
         st.caption(
             f"The graph has limited data on {fetch_ticker}. Its annual report may "
-            "name its suppliers or subsidiaries - about 6 seconds to find out."
+            "name its suppliers - about 6 seconds to find out."
         )
     if st.button(
         f"Fetch {fetch_ticker} from SEC and add it",
@@ -305,8 +289,6 @@ if fetch_ticker:
             parts = [f"{report.form} filed {report.filed}"]
             if report.suppliers:
                 parts.append(f"{len(report.suppliers)} suppliers")
-            if report.subsidiaries:
-                parts.append(f"{len(report.subsidiaries)} subsidiaries")
             parts.append(f"{report.elapsed_ms / 1000:.1f}s")
             st.success(f"Added {fetch_ticker}: " + " · ".join(parts))
 

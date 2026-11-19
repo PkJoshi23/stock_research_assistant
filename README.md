@@ -359,12 +359,19 @@ A **price** question about an unknown ticker still gets a live quote (yfinance
 needs no graph). A **relationship** question lists the tracked universe and
 offers a *Fetch from SEC* button that runs the fast path
 (``src/ingestion/fast_sec.py``: primary document only, 1-3 MB, Item 1 slicing,
-zero tokens when the filing names suppliers) and re-answers.
+**deterministic extraction - no model call, no tokens at all**) and re-answers.
+A tracked company whose graph has no matching edges ("suppliers of CRWV?") offers
+the same button via an ``enrich`` hint.
 
 Measured: NVDA 4.4 s cold / 2.0 s warm at **0 tokens** (5 suppliers); AAOI
-11.2 s cold / 6.1 s warm at 404 tokens, where the honest answer is that its 10-K
-names no suppliers - the report quotes the "limited number of suppliers / sole
-source" disclosure instead.
+11.2 s cold / 6.1 s warm at **0 tokens**, where the honest answer is that its
+10-K names no suppliers - the report quotes the "limited number of suppliers /
+sole source" disclosure instead.
+
+Scope note: this path deliberately does *not* parse Exhibit 21 subsidiaries. On
+real filings that table yielded filenames, column headers and jurisdiction cells
+as "subsidiaries", and the value did not justify the surface. The deep crawler
+below still reads subsidiaries for the seed universe.
 
 ### SEC filings (corporate structure)
 

@@ -155,5 +155,5 @@ def refusal_text(coverage: Coverage, tracked_tickers: list[str]) -> str:
         f"I don't track {described}. "
         f"My graph covers {len(tracked_tickers)} companies: {listed}.\n\n"
         "I can fetch its latest SEC filing and add it in about 6 seconds - "
-        "suppliers and subsidiaries included."
+        "its named suppliers included."
     )

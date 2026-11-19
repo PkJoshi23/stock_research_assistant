@@ -7,24 +7,23 @@ crawled once; it is the wrong trade for "who supplies AAOI?" answered in 4 s.
 
 This module exploits three facts about 10-K filings:
 
-1. the document is **standardised**: Item 1 (Business) names suppliers, Item 1A
-   is Risk Factors, Exhibit 21 lists subsidiaries;
+1. the document is **standardised**: Item 1 (Business) names suppliers;
 2. the **primary document** is 1-3 MB, while the full submission is 10x larger
    and mostly XBRL;
 3. therefore we never need the whole file: locate the Item headings, slice
-   ~20 k characters, and send only that.
+   ~20 k characters, and mine that.
 
-Order of work, cheapest first:
+The extraction is **deterministic and token-free**: pattern-matched list
+sentences, not a model. That was a deliberate cut - a model fallback found
+nothing on the three filings it was tried against (AAOI, CRWV, MSFT), cost a
+call per company, and made the answer harder to explain. When the text names no
+suppliers, the honest result is the filing's own disclosure ("we depend on a
+limited number of suppliers"), reported as ``evidence``.
 
-    ticker -> CIK        company_tickers.json (cached, no request)
-    CIK -> filing        data.sec.gov/submissions (~1 KB of JSON)
-    filing -> bytes      primary document only (1-3 MB)
-    bytes -> text        regex de-tag (no DOM, no lxml)
-    text -> section      anchor on "Item 1. Business" ... "Item 1A"
-    section -> names     deterministic list patterns first
-    names -> model        only if determinism found nothing (~1 k tokens)
-
-Subsidiaries come from Exhibit 21 - a plain list - so that costs zero tokens.
+Deliberately not handled here: Exhibit 21 subsidiaries. Parsing that table
+produced filenames, column headers and jurisdiction cells as "subsidiaries" on
+real filings; the value did not justify the surface. The deep crawler still
+reads subsidiaries for the seed universe.
 """
 
 from __future__ import annotations
@@ -41,22 +40,17 @@ if __package__ in (None, ""):
 
 import requests
 
-from src import config, entities, llm, relate_db, ticker_directory
-from src.ingestion import ingest_sec_relationships as sec
+from src import config, entities, relate_db, ticker_directory
 from src.ingestion import ingest_stock_data as stocks
-from src.schema import STOCK, SUBSIDIARY, SUPPLIER
+from src.schema import STOCK, SUPPLIER
 
-#: Hard cap on a downloaded primary document. The largest 10-Ks observed here are
-#: ~25 MB (ASML's 20-F) but a 10-K primary document is normally 1-3 MB; anything
-#: beyond this is truncated rather than refused, and the report says so.
+#: Hard cap on a downloaded primary document. A 10-K primary document is normally
+#: 1-3 MB; anything beyond this is truncated rather than refused, and the report
+#: says so.
 MAX_DOCUMENT_BYTES = 12 * 1024 * 1024
 
-#: Characters kept from Item 1. Enough for product/supplier description, small
-#: enough that the optional model fallback stays around 1 k tokens.
+#: Characters kept from Item 1. Enough for the product/supplier description.
 MAX_SECTION_CHARS = 20000
-
-#: Sentinel returned when a section anchor cannot be found.
-_NO_SECTION = ""
 
 
 @dataclass
@@ -74,17 +68,15 @@ class FastReport:
     text_chars: int = 0
     section_chars: int = 0
     suppliers: list[str] = field(default_factory=list)
+    #: (supplier name, resolved ticker) pairs written as Stock edges.
     unresolved: list[str] = field(default_factory=list)
-    subsidiaries: list[str] = field(default_factory=list)
-    #: Quoted filing sentence when no supplier names are disclosed - "we depend
-    #: on a limited number of suppliers" - so the answer can say *why* it is
-    #: empty instead of implying the company has no dependencies.
+    #: Quoted filing sentence when no supplier names are disclosed - so the
+    #: answer can say *why* it is empty instead of implying no dependencies.
     evidence: str | None = None
     #: Human-readable reason the fetch failed (HTTP status, missing contact...).
     #: A network failure is a result, not an exception: the UI must render it.
     error: str | None = None
     cached: bool = False
-    tokens: int = 0
     elapsed_ms: int = 0
     wrote: bool = False
     notes: list[str] = field(default_factory=list)
@@ -103,11 +95,9 @@ class FastReport:
             "section_chars": self.section_chars,
             "suppliers": self.suppliers,
             "unresolved": self.unresolved,
-            "subsidiaries": self.subsidiaries,
             "evidence": self.evidence,
             "error": self.error,
             "cached": self.cached,
-            "tokens": self.tokens,
             "elapsed_ms": self.elapsed_ms,
             "wrote": self.wrote,
             "notes": self.notes,
@@ -122,10 +112,9 @@ class FastReport:
 def _headers() -> dict[str, str]:
     """EDGAR requires a descriptive User-Agent with a contact address.
 
-    Without one the submissions and Archives endpoints answer 403 - which is
-    exactly what the deployed app hit when SEC_CONTACT_EMAIL was unset. The
-    marker below makes that state visible in the request rather than pretending
-    to be a contact that does not exist.
+    Verified against EDGAR: the same Archives URL returns 200 with a contact
+    address and 403 without one. The marker below makes a missing contact visible
+    in the request instead of pretending to be an address that does not exist.
     """
     contact = config.SEC_CONTACT_EMAIL or "contact-not-configured"
     return {
@@ -164,6 +153,7 @@ def get_text(url: str, *, max_bytes: int = MAX_DOCUMENT_BYTES) -> tuple[str, int
         url, headers=_headers(), timeout=config.HTTP_TIMEOUT_S, stream=True
     ) as response:
         response.raise_for_status()
+        encoding = response.encoding or "utf-8"
         chunks: list[bytes] = []
         total = 0
         truncated = False
@@ -178,7 +168,6 @@ def get_text(url: str, *, max_bytes: int = MAX_DOCUMENT_BYTES) -> tuple[str, int
                 break
             chunks.append(chunk)
             total += len(chunk)
-    encoding = response.encoding or "utf-8"
     try:
         text = b"".join(chunks).decode(encoding, errors="replace")
     except LookupError:
@@ -196,8 +185,7 @@ def resolve_cik(ticker: str) -> tuple[str, str] | None:
     wanted = ticker.strip().upper()
     for entry in ticker_directory.load_directory():
         if str(entry.get("ticker", "")).upper() == wanted:
-            cik = str(entry.get("cik") or "").zfill(10)
-            return (cik, entry.get("title") or "")
+            return (str(entry.get("cik") or "").zfill(10), entry.get("title") or "")
     return None
 
 
@@ -217,12 +205,6 @@ class Filing:
             f"https://www.sec.gov/Archives/edgar/data/{cik}/{accession}/"
             f"{self.primary_document}"
         )
-
-    @property
-    def index_url(self) -> str:
-        cik = str(int(self.cik)) if self.cik.isdigit() else self.cik
-        accession = self.accession.replace("-", "")
-        return f"https://www.sec.gov/Archives/edgar/data/{cik}/{accession}/index.json"
 
 
 def latest_filing(cik: str, forms: tuple[str, ...] = ("10-K", "20-F")) -> Filing | None:
@@ -290,7 +272,7 @@ def business_section(text: str, *, size: int = MAX_SECTION_CHARS) -> str:
     """
     starts = [match.start() for match in _ITEM1.finditer(text)]
     if not starts:
-        return _NO_SECTION
+        return ""
 
     for start in starts:
         risk = _ITEM1A.search(text, start)
@@ -316,6 +298,25 @@ _PURCHASE_FROM = re.compile(
     re.IGNORECASE,
 )
 
+#: Periods that belong to a legal suffix ("Co.", "Ltd.", "Inc.") otherwise end
+#: the sentence scan early and truncate the name to "Samsung Electronics Co".
+_LEGAL_PERIOD = re.compile(
+    r"\b(Inc|Ltd|Co|LLC|Corp|Corporation|plc|N\.V|B\.V|S\.A)\.", re.IGNORECASE
+)
+
+#: ``", Inc."`` is part of a name, not a list separator. Without this, the split
+#: turns "Samsung Electronics Co., Ltd." into "Samsung Electronics Co." + "Ltd".
+_LEGAL_SUFFIX = re.compile(
+    r",\s*(inc|incorporated|ltd|limited|llc|corp|corporation|co|company|plc|"
+    r"n\.v\.|b\.v\.|s\.a\.|ag|se|l\.p\.)\b\.?",
+    re.IGNORECASE,
+)
+
+#: Text after a list that is prose, not an entity: "..., to produce our wafers".
+_TRAILING_CLAUSE = re.compile(
+    r"\s+(?:to|for|which|that|in\s+order|as\s+well\s+as)\s+", re.IGNORECASE
+)
+
 _STOP_NAME = {
     "our", "the", "a", "an", "and", "or", "other", "third", "parties", "party",
     "several", "various", "time", "them", "us", "we", "its", "their",
@@ -331,57 +332,17 @@ _STARTS_GENERIC = re.compile(
     re.IGNORECASE,
 )
 _RELATIVE_CLAUSE = re.compile(r"\b(?:who|whom|whose|which|that)\b", re.IGNORECASE)
+_PHRASE_AS = re.compile(r"\bas\b", re.IGNORECASE)
 
 #: A name whose last word is a category is a category, not a company:
 #: "AI model makers", "NVIDIA as direct customers", "ODMs", "CSPs".
-#: Matching the last word (not any word) keeps real names such as
-#: "Taiwan Semiconductor Manufacturing Company Limited".
 _GENERIC_LAST_WORD = re.compile(
     r"\b(?:odms?|oems?|csps?|isvs?|vars?|sdk|makers?|vendors?|suppliers?|"
     r"providers?|manufacturers?|companies|company|customers?|players?|firms?|"
     r"operators?|builders?|partners?|integrators?|sellers?|resellers?|"
-    r"distributors?|suppliers?)$",
+    r"distributors?)$",
     re.IGNORECASE,
 )
-_PHRASE_AS = re.compile(r"\bas\b", re.IGNORECASE)
-
-#: Sentences that prove the filing *discusses* suppliers without naming them.
-#: AAOI is the canonical case: "a sole source or ... qualified only from a single
-#: supplier", "we depend on a limited number of suppliers" - no names anywhere.
-#:
-#: Deliberately keyword-first: an earlier version matched
-#: ``[^.]*\\b(keyword)\\b[^.]*\\.`` and backtracked for 26 seconds on a 393 k-char
-#: filing. Finding the keyword, then expanding to sentence boundaries, is linear.
-_EVIDENCE_KEYWORD = re.compile(
-    r"(?:sole[-\s]?source|single[-\s]?source|limited number of suppliers|"
-    r"depend(?:s|ing)? on (?:a )?(?:limited number of )?suppliers)",
-    re.IGNORECASE,
-)
-_PAGE_NOISE = re.compile(r"^(?:\d{1,3}\s+)?(?:table of contents\s+)?", re.IGNORECASE)
-
-
-def supplier_evidence(text: str) -> str | None:
-    """First sentence that discloses a dependency without naming the vendor."""
-    match = _EVIDENCE_KEYWORD.search(text)
-    if not match:
-        return None
-    start = text.rfind(".", 0, match.start()) + 1
-    end = text.find(".", match.end())
-    end = end + 1 if end != -1 else len(text)
-    sentence = re.sub(r"\s+", " ", text[start:end]).strip()
-    sentence = _PAGE_NOISE.sub("", sentence).strip(" •·-")
-    return sentence[:300] or None
-
-#: ``", Inc."`` is part of a name, not a list separator. Without this, the split
-#: turns "Samsung Electronics Co., Ltd." into "Samsung Electronics Co." + "Ltd".
-_LEGAL_SUFFIX = re.compile(
-    r",\s*(inc|incorporated|ltd|limited|llc|corp|corporation|co|company|plc|"
-    r"n\.v\.|b\.v\.|s\.a\.|ag|se|l\.p\.)\b\.?",
-    re.IGNORECASE,
-)
-
-#: Text after a list that is prose, not an entity: "..., to produce our wafers".
-_TRAILING_CLAUSE = re.compile(r"\s+(?:to|for|which|that|in\s+order|as\s+well\s+as)\s+", re.IGNORECASE)
 
 
 def _clean_names(chunk: str) -> list[str]:
@@ -412,13 +373,6 @@ def _clean_names(chunk: str) -> list[str]:
     return list(dict.fromkeys(names))
 
 
-#: Periods that belong to a legal suffix ("Co.", "Ltd.", "Inc.") otherwise end
-#: the sentence scan early and truncate the name to "Samsung Electronics Co".
-_LEGAL_PERIOD = re.compile(
-    r"\b(Inc|Ltd|Co|LLC|Corp|Corporation|plc|N\.V|B\.V|S\.A)\.", re.IGNORECASE
-)
-
-
 def deterministic_suppliers(section: str) -> list[str]:
     """Pull supplier names out of list-shaped sentences. No tokens spent."""
     if not section:
@@ -432,96 +386,32 @@ def deterministic_suppliers(section: str) -> list[str]:
     return list(dict.fromkeys(names))
 
 
-# -----------------------------------------------------------------------------
-# Exhibit 21 (subsidiaries) - a plain list, so zero tokens
-# -----------------------------------------------------------------------------
-
-_BLOCK_TAG = re.compile(r"</?(?:p|div|li|tr|br|h[1-6])\b[^>]*>", re.IGNORECASE)
-
-
-_EXHIBIT_JUNK = re.compile(
-    r"(?:\.html?$|^document$|ex-?21|name of subsidiary|jurisdiction)",
+#: Sentences that prove the filing *discusses* suppliers without naming them.
+#: AAOI is the canonical case: "a sole source or ... qualified only from a single
+#: supplier", "we depend on a limited number of suppliers" - no names anywhere.
+#:
+#: Deliberately keyword-first: an earlier version matched
+#: ``[^.]*\\b(keyword)\\b[^.]*\\.`` and backtracked for 26 seconds on a 393 k-char
+#: filing. Finding the keyword, then expanding to sentence boundaries, is linear.
+_EVIDENCE_KEYWORD = re.compile(
+    r"(?:sole[-\s]?source|single[-\s]?source|limited number of suppliers|"
+    r"depend(?:s|ing)? on (?:a )?(?:limited number of )?suppliers)",
     re.IGNORECASE,
 )
-
-#: Jurisdiction column values. Table cells collapse to one line, so the column
-#: arrives as a suffix: "CoreWeave Compute Acquisition Co. II, LLC Delaware".
-_JURISDICTIONS = sorted(
-    {
-        "delaware", "california", "texas", "new york", "florida", "washington",
-        "cayman islands", "british virgin islands", "virgin islands", "bermuda",
-        "ireland", "netherlands", "luxembourg", "singapore", "hong kong",
-        "england and wales", "united kingdom", "united states", "usa", "canada",
-        "japan", "germany", "israel", "china", "taiwan", "south korea", "korea",
-        "switzerland", "france", "australia", "india", "malta", "cyprus",
-        "mauritius", "barbados", "jersey", "guernsey", "sweden", "denmark",
-        "norway", "finland", "spain", "italy", "belgium", "austria", "poland",
-        "mexico", "brazil", "costa rica", "malaysia", "vietnam", "philippines",
-        "indonesia", "thailand", "uae", "united arab emirates", "south africa",
-    },
-    key=len,
-    reverse=True,
-)
+_PAGE_NOISE = re.compile(r"^(?:\d{1,3}\s+)?(?:table of contents\s+)?", re.IGNORECASE)
 
 
-def _strip_jurisdiction(name: str) -> str:
-    lowered = name.lower()
-    for jurisdiction in _JURISDICTIONS:
-        suffix = " " + jurisdiction
-        if lowered.endswith(suffix):
-            return name[: -len(suffix)].strip(" ,;.-")
-    return name
-
-
-def parse_exhibit21(raw: str) -> list[str]:
-    """Parse a subsidiaries exhibit into names."""
-    text = _BLOCK_TAG.sub("\n", raw)
-    text = _SCRIPT.sub(" ", text)
-    text = _TAG.sub(" ", text)
-    text = html.unescape(text)
-
-    names: list[str] = []
-    for line in text.split("\n"):
-        candidate = _WS.sub(" ", line).strip(" .;:—–-\t")
-        # Exhibit 21 rows usually end with the jurisdiction: "Name - Country".
-        candidate = re.split(r"\s+[-\u2013\u2014]\s+", candidate)[0].strip(" .;:•·-")
-        candidate = _strip_jurisdiction(candidate)
-        if candidate.lower() in _JURISDICTIONS or not (3 <= len(candidate) <= 120):
-            continue
-        if not re.search(r"[A-Za-z]{3}", candidate):
-            continue
-        if candidate.lower() in {"name", "jurisdiction", "subsidiaries of the registrant"}:
-            continue
-        if candidate.lower().startswith(("exhibit 21", "subsidiaries of")):
-            continue
-        # Real filings put the exhibit filename and column headers in the body;
-        # CRWV's list came back with "ex211-coreweaveincx10xk.htm", "Document" and
-        # "Name of Subsidiary Jurisdiction" mixed in with the companies.
-        if _EXHIBIT_JUNK.search(candidate):
-            continue
-        names.append(candidate)
-    return list(dict.fromkeys(names))
-
-
-def exhibit21_names(filing: Filing) -> list[str]:
-    """Fetch and parse the Exhibit 21 document, if the filing has one."""
-    try:
-        index = get_json(filing.index_url)
-    except Exception:  # noqa: BLE001 - exhibit is best effort
-        return []
-
-    for item in (index.get("directory") or {}).get("item") or []:
-        kind = str(item.get("type") or "").upper()
-        name = str(item.get("name") or "")
-        lowered = name.lower()
-        if kind.startswith("EX-21") or "ex21" in lowered or "exhibit21" in lowered:
-            base = filing.index_url.rsplit("/", 1)[0]
-            try:
-                raw, _, _ = get_text(f"{base}/{name}", max_bytes=2 * 1024 * 1024)
-            except Exception:  # noqa: BLE001
-                return []
-            return parse_exhibit21(raw)
-    return []
+def supplier_evidence(text: str) -> str | None:
+    """First sentence that discloses a dependency without naming the vendor."""
+    match = _EVIDENCE_KEYWORD.search(text)
+    if not match:
+        return None
+    start = text.rfind(".", 0, match.start()) + 1
+    end = text.find(".", match.end())
+    end = end + 1 if end != -1 else len(text)
+    sentence = re.sub(r"\s+", " ", text[start:end]).strip()
+    sentence = _PAGE_NOISE.sub("", sentence).strip(" •·-")
+    return sentence[:300] or None
 
 
 # -----------------------------------------------------------------------------
@@ -535,9 +425,8 @@ def _cache_path(filing: Filing) -> Path:
 
 
 def _load_cached_text(filing: Filing) -> str:
-    path = _cache_path(filing)
     try:
-        return path.read_text(encoding="utf-8")
+        return _cache_path(filing).read_text(encoding="utf-8")
     except OSError:
         return ""
 
@@ -552,26 +441,20 @@ def _store_cached_text(filing: Filing, text: str) -> None:
 
 
 def _resolve_name(conn, name: str, directory: ticker_directory.TickerDirectory) -> str | None:
+    """Graph aliases first ("TSMC" -> TSM), then SEC's registrant map."""
     tracked = entities.resolve_tracked_stock(conn, name)
     if tracked:
         return tracked
     return directory.lookup(name)
 
 
-def ingest(
-    conn,
-    ticker: str,
-    *,
-    write: bool = True,
-    allow_model: bool = True,
-) -> FastReport:
+def ingest(conn, ticker: str, *, write: bool = True) -> FastReport:
     """Run the fast path for one ticker and (optionally) write it to the graph."""
     started = time.perf_counter()
     report = FastReport(ticker=ticker.strip().upper())
 
     # EDGAR's Archives endpoint answers 403 to any User-Agent without a contact
-    # address (verified: the same URL returns 200 with an address and 403
-    # without). Checking first turns a confusing network error into an instruction.
+    # address. Checking first turns a confusing network error into an instruction.
     if not config.SEC_CONTACT_EMAIL:
         report.error = (
             "SEC requires a contact address before it will serve filings. "
@@ -625,37 +508,11 @@ def ingest(
     section = business_section(text)
     report.section_chars = len(section)
 
-    suppliers = deterministic_suppliers(section)
-    if not suppliers:
-        # Free, still no tokens: suppliers are sometimes named outside Item 1
-        # (Risk Factors, MD&A), and the text is already in memory.
-        suppliers = deterministic_suppliers(text)
-
-    if not suppliers:
+    # Item 1 first; the whole document second, because suppliers are sometimes
+    # named in Risk Factors or MD&A.
+    report.suppliers = deterministic_suppliers(section) or deterministic_suppliers(text)
+    if not report.suppliers:
         report.evidence = supplier_evidence(text)
-        window = section
-        if not window and report.evidence:
-            anchor = text.find(report.evidence[:60])
-            window = text[max(0, anchor - 500) : anchor + 7000] if anchor >= 0 else text[:8000]
-        if window and allow_model:
-            llm.start_trace()
-            try:
-                # Smaller slice for the model: the deterministic pass found
-                # nothing, so pay for prose understanding on a bounded window.
-                suppliers = sec.extract_dependencies(window[:8000], report.ticker)
-            finally:
-                usage = llm.finish_trace()  # thread-local: no handle to pass
-            report.tokens = int(usage.get("total_tokens", 0))
-    report.suppliers = suppliers
-
-    if filing.form == "10-K":
-        report.subsidiaries = exhibit21_names(filing)
-    else:
-        report.notes.append(
-            f"{filing.form} has no Exhibit 21; subsidiaries not extracted"
-        )
-
-    if not suppliers:
         report.notes.append(
             "the filing names no suppliers"
             + ("; evidence captured" if report.evidence else "")
@@ -684,7 +541,8 @@ def ingest(
         report.notes.append("snapshot unavailable; wrote ticker and name only")
 
     directory = ticker_directory.TickerDirectory.load()
-    for name in suppliers:
+    provenance = {"form": filing.form, "accession": filing.accession, "filed": filing.filed}
+    for name in report.suppliers:
         supplier_ticker = _resolve_name(conn, name, directory)
         if supplier_ticker:
             relate_db.query(
@@ -704,9 +562,7 @@ def ingest(
                     "ticker": supplier_ticker,
                     "name": name,
                     "customer": report.ticker,
-                    "form": filing.form,
-                    "accession": filing.accession,
-                    "filed": filing.filed,
+                    **provenance,
                 },
             )
             report.unresolved.append(f"{name} -> {supplier_ticker}")
@@ -723,29 +579,8 @@ def ingest(
                     r.accession = $accession,
                     r.filed = $filed
                 """,
-                {
-                    "name": name,
-                    "customer": report.ticker,
-                    "form": filing.form,
-                    "accession": filing.accession,
-                    "filed": filing.filed,
-                },
+                {"name": name, "customer": report.ticker, **provenance},
             )
-
-    for name in report.subsidiaries:
-        relate_db.query(
-            conn,
-            f"""
-            MERGE (sub:{SUBSIDIARY} {{name: $name}})
-            WITH sub
-            MATCH (s:{STOCK} {{ticker: $ticker}})
-            MERGE (s)-[r:OWNS]->(sub)
-            SET r.source = coalesce(r.source, $form),
-                r.accession = $accession
-            """,
-            {"name": name, "ticker": report.ticker, "form": filing.form,
-             "accession": filing.accession},
-        )
 
     report.wrote = True
     report.elapsed_ms = int((time.perf_counter() - started) * 1000)
@@ -765,8 +600,6 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("tickers", nargs="+", help="tickers to fetch, e.g. AAOI")
     parser.add_argument("--json", action="store_true", help="machine-readable output")
     parser.add_argument("--dry-run", action="store_true", help="fetch but do not write")
-    parser.add_argument("--no-model", action="store_true",
-                        help="deterministic extraction only (no LLM fallback)")
     args = parser.parse_args(argv)
 
     if not config.SEC_CONTACT_EMAIL:
@@ -778,12 +611,7 @@ def main(argv: list[str] | None = None) -> int:
     reports: list[FastReport] = []
     try:
         for ticker in args.tickers:
-            report = ingest(
-                conn,
-                ticker,
-                write=not args.dry_run,
-                allow_model=not args.no_model,
-            )
+            report = ingest(conn, ticker, write=not args.dry_run)
             reports.append(report)
             if args.json:
                 continue
@@ -797,18 +625,14 @@ def main(argv: list[str] | None = None) -> int:
                 f" | text {report.text_chars:,} chars"
                 f" | section {report.section_chars:,} chars"
                 f" | {report.elapsed_ms} ms"
-                f" | {report.tokens} tokens"
             )
             print(f"    suppliers ({len(report.suppliers)}): {report.suppliers}")
-            if report.evidence:
-                print(f"    evidence: {report.evidence}")
-            if report.cached:
-                print("    (de-tagged text from cache - no download this run)")
             if report.unresolved:
                 print(f"    resolved to tickers: {report.unresolved}")
-            if report.subsidiaries:
-                print(f"    subsidiaries ({len(report.subsidiaries)}): "
-                      f"{report.subsidiaries[:8]}")
+            if report.evidence:
+                print(f"    evidence: {report.evidence}")
+            if report.error:
+                print(f"    error: {report.error}")
             for note in report.notes:
                 print(f"    note: {note}")
             if report.wrote:
